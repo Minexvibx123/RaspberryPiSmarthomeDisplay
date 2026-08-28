@@ -9,8 +9,8 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
-    QLineEdit, QMessageBox, QPushButton, QSlider, QSpinBox, QTabWidget,
-    QVBoxLayout, QWidget,
+    QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QSlider,
+    QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from app.core.homeassistant import HomeAssistantClient
@@ -18,13 +18,14 @@ from app.ui.themes import BUILT_IN_THEMES, build_stylesheet
 
 
 class SettingsScreen(QWidget):
-    def __init__(self, db, settings, theme_manager, app, on_theme_applied=None, parent=None):
+    def __init__(self, db, settings, theme_manager, app, on_theme_applied=None, parent=None, plugin_manager=None):
         super().__init__(parent)
         self.db = db
         self.settings = settings
         self.theme_manager = theme_manager
         self.app = app
         self.on_theme_applied = on_theme_applied
+        self.plugin_manager = plugin_manager
 
         root = QVBoxLayout(self)
         title = QLabel("Einstellungen")
@@ -36,6 +37,7 @@ class SettingsScreen(QWidget):
         tabs.addTab(self._build_ha_tab(), "Home Assistant")
         tabs.addTab(self._build_theme_tab(), "Design")
         tabs.addTab(self._build_standby_tab(), "Standby & Display")
+        tabs.addTab(self._build_plugins_tab(), "Plugins")
         tabs.addTab(self._build_security_tab(), "Sicherheit")
         tabs.addTab(self._build_backup_tab(), "Backup")
         root.addWidget(tabs, 1)
@@ -103,6 +105,66 @@ class SettingsScreen(QWidget):
     def _on_dim_opacity_changed(self, value: int) -> None:
         self.settings.standby_dim_opacity = value
         self.dim_opacity_label.setText(f"{value}%")
+
+    def _build_plugins_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        if self.plugin_manager is None:
+            layout.addWidget(QLabel("Keine Plugins verfügbar."))
+            return w
+
+        self._plugin_list = QListWidget()
+        layout.addWidget(self._plugin_list, 1)
+
+        btns = QHBoxLayout()
+        self._plugin_enable_btn = QPushButton("Aktivieren")
+        self._plugin_disable_btn = QPushButton("Deaktivieren")
+        self._plugin_reload_btn = QPushButton("Neu laden")
+        self._plugin_enable_btn.clicked.connect(self._enable_selected_plugin)
+        self._plugin_disable_btn.clicked.connect(self._disable_selected_plugin)
+        self._plugin_reload_btn.clicked.connect(self._reload_selected_plugin)
+        for b in (self._plugin_enable_btn, self._plugin_disable_btn, self._plugin_reload_btn):
+            btns.addWidget(b)
+        layout.addLayout(btns)
+
+        self._refresh_plugin_list()
+        return w
+
+    def _refresh_plugin_list(self) -> None:
+        if self.plugin_manager is None:
+            return
+        self._plugin_list.clear()
+        for info in self.plugin_manager.list_plugins():
+            text = f"{info.name} v{info.version} [{info.state}]"
+            if info.error:
+                text += f" \u2014 {info.error}"
+            item = QListWidgetItem(text)
+            item.setData(Qt.UserRole, info.id)
+            self._plugin_list.addItem(item)
+
+    def _selected_plugin_id(self):
+        item = self._plugin_list.currentItem()
+        if item is None:
+            return None
+        return item.data(Qt.UserRole)
+
+    def _enable_selected_plugin(self) -> None:
+        pid = self._selected_plugin_id()
+        if pid:
+            self.plugin_manager.enable(pid)
+            self._refresh_plugin_list()
+
+    def _disable_selected_plugin(self) -> None:
+        pid = self._selected_plugin_id()
+        if pid:
+            self.plugin_manager.disable(pid)
+            self._refresh_plugin_list()
+
+    def _reload_selected_plugin(self) -> None:
+        pid = self._selected_plugin_id()
+        if pid:
+            self.plugin_manager.reload(pid)
+            self._refresh_plugin_list()
 
     def _build_ha_tab(self) -> QWidget:
         w = QWidget()

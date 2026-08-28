@@ -52,6 +52,15 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL DEFAULT 'widget',
+    type TEXT NOT NULL DEFAULT '',
+    config TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL DEFAULT 0
+);
 """
 
 
@@ -85,6 +94,16 @@ class Theme:
     config: dict
     is_active: bool
     built_in: bool = False
+
+
+@dataclass
+class Template:
+    id: int
+    name: str
+    kind: str  # "widget" | "page"
+    type: str = ""  # Widget-Typ bei kind == "widget"
+    config: dict = field(default_factory=dict)
+    created_at: float = 0.0
 
 
 class Database:
@@ -265,6 +284,59 @@ class Database:
             id=row["id"], name=row["name"], config=json.loads(row["config"] or "{}"),
             is_active=bool(row["is_active"]), built_in=bool(row["built_in"]),
         )
+
+    # ------------------------------------------------------------------ #
+    # templates (widget templates + page templates)
+    # ------------------------------------------------------------------ #
+    def save_template(self, name: str, kind: str, config: dict, type: str = "",
+                      set_created_at: Optional[float] = None) -> Template:
+        """Upsert einer Vorlage (Widget oder Seite) anhand des Namens."""
+        cfg = json.dumps(config)
+        created = set_created_at if set_created_at is not None else time.time()
+        existing = self._conn.execute("SELECT id FROM templates WHERE name = ?", (name,)).fetchone()
+        if existing:
+            self._conn.execute(
+                "UPDATE templates SET kind = ?, type = ?, config = ?, created_at = ? WHERE id = ?",
+                (kind, type, cfg, created, existing["id"]),
+            )
+            template_id = int(existing["id"])
+        else:
+            cur = self._conn.execute(
+                "INSERT INTO templates (name, kind, type, config, created_at) VALUES (?, ?, ?, ?, ?)",
+                (name, kind, type, cfg, created),
+            )
+            template_id = int(cur.lastrowid)
+        self._conn.commit()
+        return Template(id=template_id, name=name, kind=kind, type=type,
+                        config=config, created_at=created)
+
+    def list_templates(self, kind: Optional[str] = None) -> list[Template]:
+        if kind:
+            rows = self._conn.execute(
+                "SELECT * FROM templates WHERE kind = ? ORDER BY name ASC", (kind,)
+            ).fetchall()
+        else:
+            rows = self._conn.execute("SELECT * FROM templates ORDER BY name ASC").fetchall()
+        return [
+            Template(
+                id=r["id"], name=r["name"], kind=r["kind"], type=r["type"],
+                config=json.loads(r["config"] or "{}"), created_at=r["created_at"],
+            )
+            for r in rows
+        ]
+
+    def get_template(self, template_id: int) -> Optional[Template]:
+        row = self._conn.execute("SELECT * FROM templates WHERE id = ?", (template_id,)).fetchone()
+        if not row:
+            return None
+        return Template(
+            id=row["id"], name=row["name"], kind=row["kind"], type=row["type"],
+            config=json.loads(row["config"] or "{}"), created_at=row["created_at"],
+        )
+
+    def delete_template(self, template_id: int) -> None:
+        self._conn.execute("DELETE FROM templates WHERE id = ?", (template_id,))
+        self._conn.commit()
 
     # ------------------------------------------------------------------ #
     # settings (key/value, e.g. HA url, token, language, edit pin)

@@ -1,0 +1,10 @@
+{
+  "id": "example_plugin",
+  "name": "Beispiel Plugin",
+  "version": "1.0.0",
+  "description": "Minimales Beispiel-Plugin, das den Plugin-Seam von HomePanel demonstriert.",
+  "author": "HomePanel",
+  "enabled": true,
+  "category": "general",
+  "requires": []
+}

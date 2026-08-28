@@ -66,3 +66,11 @@ def widgets_by_category() -> dict[str, list[type[BaseWidget]]]:
     for cls in WIDGET_CLASSES:
         grouped.setdefault(cls.category, []).append(cls)
     return grouped
+
+
+def register_widget_class(cls: type[BaseWidget]) -> None:
+    """Register a widget class at runtime (used by plugins). Idempotent."""
+    if cls.type_name in WIDGET_REGISTRY:
+        return
+    WIDGET_CLASSES.append(cls)
+    WIDGET_REGISTRY[cls.type_name] = cls

@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
 from app.core.database import Database
 from app.core.settings import AppSettings
 from app.core.state_manager import StateManager
+from app.core.service_registry import ServiceRegistry
+from app.plugins.manager import PluginManager
 from app.ui.dashboard import ConnectionBadge, DashboardCanvas
 from app.ui.editor import EditorScreen
 from app.ui.navigation import NavigationBar
@@ -267,6 +269,15 @@ class MainWindow(QMainWindow):
         self.state_manager = StateManager(self.settings)
         self.state_manager.start()
 
+        self.services = ServiceRegistry()
+        self.services.register("database", self.db)
+        self.services.register("settings", self.settings)
+        self.services.register("state_manager", self.state_manager)
+        plugins_root = Path(__file__).resolve().parent.parent.parent / "plugins"
+        self.plugin_manager = PluginManager(self.db, self.services, plugins_root)
+        self.plugin_manager.load_all()
+        self.services.register("plugin_manager", self.plugin_manager)
+
         design_size = self.settings.effective_design_resolution
         pages = self.db.list_pages()
         first_page_id = pages[0].id if pages else self.db.create_page("Home").id
@@ -284,6 +295,7 @@ class MainWindow(QMainWindow):
         self.settings_screen = SettingsScreen(
             self.db, self.settings, self.theme_manager, self.app,
             on_theme_applied=self._refresh_theme,
+            plugin_manager=self.plugin_manager,
         )
         self.settings_back_btn = QPushButton("\u2190 Zurück zum Panel")
         self.settings_back_btn.clicked.connect(lambda: self.stack.setCurrentWidget(self.dashboard_view))
