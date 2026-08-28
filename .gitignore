@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/
+*.log
+.DS_Store
+config/local_settings.json
+*.homepanel-backup
+.omo
+.opencode
+.thoughts
+thoughts/

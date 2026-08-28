@@ -1,0 +1,31 @@
+[Unit]
+Description=HomePanel - Home Assistant Touchpanel
+After=network-online.target systemd-user-sessions.service getty@tty1.service
+Conflicts=getty@tty1.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+# cage = minimaler Wayland-Kiosk-Compositor.
+# Warum: Auf dem Pi 5 hängt das 7"-DSI-Panel an einem eigenen DRM-Device
+# (drm-rp1-dsi, getrennt von v3d/vc4) – Qt-eglfs kann dort keine Surface
+# erstellen (SIGABRT-Crashloop) und linuxfb unterstützt keine Rotation.
+# cage bringt GPU-Beschleunigung zurück (v3d rendert, DMA-BUF-Scanout über
+# rp1-dsi), saubere Output-Rotation und korrekt mitgedrehte Touch-Koordinaten.
+PAMName=login
+# WAYLAND_DISPLAY darf NICHT vorab gesetzt sein – sonst startet cage im
+# Wayland-Backend ("Could not connect to remote display") statt am DRM-Device.
+# Es wird von cage selbst für die Clients exportiert.
+Environment=QT_QPA_PLATFORM=wayland
+Environment=PYTHONUNBUFFERED=1
+# Landscape-Rotation: Panel ist portrait-native (720x1280).
+# Werte: normal / 90 / 180 / 270 – Touch dreht wlroots automatisch mit.
+ExecStartPost=/bin/sh -c 'i=0; until wlr-randr --output DSI-2 --transform 90 || [ $i -ge 20 ]; do i=$((i+1)); sleep 0.5; done'
+WorkingDirectory=/home/pi/homepanel
+ExecStart=/usr/bin/cage -d -- /home/pi/homepanel/.venv/bin/python -m app.main
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
