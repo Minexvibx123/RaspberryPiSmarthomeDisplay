@@ -13,6 +13,7 @@ from app.widgets.clock import ClockWidget
 from app.widgets.console import ConsoleWidget
 from app.widgets.container import ContainerWidget
 from app.widgets.cover import CoverWidget
+from app.widgets.custom_widget import CustomWidget
 from app.widgets.energy import EnergyWidget
 from app.widgets.entity_list import EntityListWidget
 from app.widgets.ha_extra import (
@@ -36,6 +37,7 @@ from app.widgets.text import TextWidget
 from app.widgets.thermostat import ThermostatWidget
 from app.widgets.timer import TimerWidget
 from app.widgets.weather import WeatherWidget
+from app.widgets.web import WebWidget
 
 WIDGET_CLASSES: list[type[BaseWidget]] = [
     ButtonWidget, LightWidget, SwitchWidget, SliderWidget, ThermostatWidget,
@@ -52,6 +54,8 @@ WIDGET_CLASSES: list[type[BaseWidget]] = [
     CameraWidget, ContainerWidget, MediaPlayerWidget, NotificationWidget,
     SensorGraphWidget, TimerWidget,
     ConsoleWidget, EnergyWidget,
+    WebWidget,
+    CustomWidget,
 ]
 
 WIDGET_REGISTRY: dict[str, type[BaseWidget]] = {cls.type_name: cls for cls in WIDGET_CLASSES}
@@ -74,3 +78,10 @@ def register_widget_class(cls: type[BaseWidget]) -> None:
         return
     WIDGET_CLASSES.append(cls)
     WIDGET_REGISTRY[cls.type_name] = cls
+
+
+def unregister_widget_class(type_name: str) -> None:
+    """Remove a dynamically registered widget type when its plugin unloads."""
+    cls = WIDGET_REGISTRY.pop(type_name, None)
+    if cls is not None:
+        WIDGET_CLASSES.remove(cls)

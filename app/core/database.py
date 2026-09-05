@@ -61,6 +61,15 @@ CREATE TABLE IF NOT EXISTS templates (
     config TEXT NOT NULL DEFAULT '{}',
     created_at REAL NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS workflows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    trigger_entity TEXT NOT NULL DEFAULT '',
+    trigger_state TEXT NOT NULL DEFAULT '',
+    steps TEXT NOT NULL DEFAULT '[]',
+    enabled INTEGER NOT NULL DEFAULT 1
+);
 """
 
 
@@ -104,6 +113,16 @@ class Template:
     type: str = ""  # Widget-Typ bei kind == "widget"
     config: dict = field(default_factory=dict)
     created_at: float = 0.0
+
+
+@dataclass
+class Workflow:
+    id: int
+    name: str
+    trigger_entity: str = ""
+    trigger_state: str = ""
+    steps: list = field(default_factory=list)  # list[dict]: {kind: action|wait, ...}
+    enabled: bool = True
 
 
 class Database:
@@ -339,6 +358,48 @@ class Database:
         self._conn.commit()
 
     # ------------------------------------------------------------------ #
+    # workflows (simple WHEN/THEN/WAIT automations, listenbasiert Phase 5)
+    # ------------------------------------------------------------------ #
+    def save_workflow(self, name: str, trigger_entity: str, trigger_state: str, steps: list, enabled: bool = True, workflow_id: Optional[int] = None) -> "Workflow":
+        steps_json = json.dumps(steps)
+        if workflow_id is not None:
+            self._conn.execute(
+                "UPDATE workflows SET name = ?, trigger_entity = ?, trigger_state = ?, steps = ?, enabled = ? WHERE id = ?",
+                (name, trigger_entity, trigger_state, steps_json, int(enabled), workflow_id),
+            )
+        else:
+            cur = self._conn.execute(
+                "INSERT INTO workflows (name, trigger_entity, trigger_state, steps, enabled) VALUES (?, ?, ?, ?, ?)",
+                (name, trigger_entity, trigger_state, steps_json, int(enabled)),
+            )
+            workflow_id = int(cur.lastrowid)
+        self._conn.commit()
+        return Workflow(id=workflow_id, name=name, trigger_entity=trigger_entity, trigger_state=trigger_state, steps=steps, enabled=enabled)
+
+    def list_workflows(self, enabled_only: bool = False) -> list["Workflow"]:
+        query = "SELECT * FROM workflows" + (" WHERE enabled = 1" if enabled_only else "") + " ORDER BY name ASC"
+        return [self._row_to_workflow(row) for row in self._conn.execute(query).fetchall()]
+
+    def get_workflow(self, workflow_id: int) -> Optional["Workflow"]:
+        row = self._conn.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,)).fetchone()
+        return self._row_to_workflow(row) if row else None
+
+    def delete_workflow(self, workflow_id: int) -> None:
+        self._conn.execute("DELETE FROM workflows WHERE id = ?", (workflow_id,))
+        self._conn.commit()
+
+    def set_workflow_enabled(self, workflow_id: int, enabled: bool) -> None:
+        self._conn.execute("UPDATE workflows SET enabled = ? WHERE id = ?", (int(enabled), workflow_id))
+        self._conn.commit()
+
+    def _row_to_workflow(self, row: sqlite3.Row) -> "Workflow":
+        return Workflow(
+            id=row["id"], name=row["name"], trigger_entity=row["trigger_entity"],
+            trigger_state=row["trigger_state"], steps=json.loads(row["steps"] or "[]"),
+            enabled=bool(row["enabled"]),
+        )
+
+    # ------------------------------------------------------------------ #
     # settings (key/value, e.g. HA url, token, language, edit pin)
     # ------------------------------------------------------------------ #
     def get_setting(self, key: str, default: Any = None) -> Any:
@@ -381,11 +442,22 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
 
+    _SECRET_KEY_MARKERS = ("token", "sid", "password", "secret", "api_key", "apikey")
+
+    @classmethod
+    def _is_secret_key(cls, key: str) -> bool:
+        lowered = key.lower()
+        return any(marker in lowered for marker in cls._SECRET_KEY_MARKERS)
+
     def export_config(self, include_secrets: bool = False) -> dict:
-        """Human-portable JSON export of layout/themes (and optionally secrets)."""
+        """Human-portable JSON export of layout/themes/templates/plugin settings.
+
+        Secrets (HA token, plugin API tokens/sessions/passwords) are excluded
+        unless ``include_secrets`` is explicitly requested by the user.
+        """
         settings = {}
         for row in self._conn.execute("SELECT key, value FROM settings"):
-            if not include_secrets and row["key"] in ("ha_token",):
+            if not include_secrets and self._is_secret_key(row["key"]):
                 continue
             settings[row["key"]] = json.loads(row["value"]) if row["value"] else None
         return {
@@ -393,6 +465,8 @@ class Database:
             "pages": [p.__dict__ for p in self.list_pages()],
             "widgets": [w.__dict__ for w in [self._row_to_widget(r) for r in self._conn.execute("SELECT * FROM widgets")]],
             "themes": [t.__dict__ for t in self.list_themes()],
+            "templates": [t.__dict__ for t in self.list_templates()],
+            "workflows": [w.__dict__ for w in self.list_workflows()],
             "settings": settings,
         }
 
@@ -412,6 +486,10 @@ class Database:
             self.create_widget(page_id, w["type"], w["x"], w["y"], w["w"], w["h"], w.get("config", {}), z=w.get("z"))
         for t in data.get("themes", []):
             self.save_theme(t["name"], t["config"], set_active=t.get("is_active", False))
+        for t in data.get("templates", []):
+            self.save_template(t["name"], t["kind"], t.get("config", {}), t.get("type", ""), set_created_at=t.get("created_at"))
+        for wf in data.get("workflows", []):
+            self.save_workflow(wf["name"], wf.get("trigger_entity", ""), wf.get("trigger_state", ""), wf.get("steps", []), enabled=wf.get("enabled", True))
         for k, v in data.get("settings", {}).items():
             self.set_setting(k, v)
 

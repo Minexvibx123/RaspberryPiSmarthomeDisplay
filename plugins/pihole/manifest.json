@@ -1,0 +1,1 @@
+{"id":"pihole","name":"Pi-hole","version":"1.0.0","description":"Pi-hole v6 REST integration","author":"HomePanel","enabled":true,"category":"network","requires":[]}

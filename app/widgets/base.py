@@ -12,21 +12,25 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QVBoxLayout, QWidget
+
+from app.core.conditions import OPERATORS, matches_condition
+from app.core.animations import ANIMATION_NAMES, animation_engine
 
 
 @dataclass
 class PropertyDef:
     key: str
     label: str
-    type: str  # "text" | "number" | "color" | "bool" | "select" | "icon" | "entity" | "font_size" | "image"
+    type: str  # "text" | "number" | "color" | "bool" | "select" | "icon" | "entity" | "font_size" | "image" | "action"
     default: Any = None
     options: Optional[list] = None  # for "select"
     min: Optional[float] = None
     max: Optional[float] = None
     entity_domains: Optional[list[str]] = None  # for "entity"
+    action: str = ""  # builder id opened by the properties panel, for "action"
     group: str = "Allgemein"
 
 
@@ -49,8 +53,18 @@ COMMON_SCHEMA: list[PropertyDef] = [
     PropertyDef("icon_position", "Icon-Position", "select", "top", options=["top", "left", "right", "hidden"], group="Layout"),
     PropertyDef("padding", "Innenabstand", "number", 12, min=0, max=40, group="Layout"),
     PropertyDef("visible_entity", "Sichtbar wenn Entity", "entity", "", group="Sichtbarkeit"),
+    PropertyDef("visible_operator", "Vergleich", "select", "equals", options=OPERATORS, group="Sichtbarkeit"),
     PropertyDef("visible_state", "Erwarteter Zustand", "text", "on", group="Sichtbarkeit"),
     PropertyDef("visible_invert", "Invertiert", "bool", False, group="Sichtbarkeit"),
+    PropertyDef("style_enabled", "Styling-Regel aktiv", "bool", False, group="Bedingtes Styling"),
+    PropertyDef("style_entity", "Entity", "entity", "", group="Bedingtes Styling"),
+    PropertyDef("style_operator", "Vergleich", "select", "equals", options=OPERATORS, group="Bedingtes Styling"),
+    PropertyDef("style_value", "Vergleichswert", "text", "", group="Bedingtes Styling"),
+    PropertyDef("style_bg_color", "Hintergrundfarbe", "color", "", group="Bedingtes Styling"),
+    PropertyDef("style_text_color", "Textfarbe", "color", "", group="Bedingtes Styling"),
+    PropertyDef("entrance_animation", "Eintritt", "select", "none", options=ANIMATION_NAMES, group="Animation"),
+    PropertyDef("state_animation", "Statuswechsel", "select", "none", options=ANIMATION_NAMES, group="Animation"),
+    PropertyDef("animation_speed", "Geschwindigkeit", "number", 1.0, min=0.1, max=3.0, group="Animation"),
 ]
 
 
@@ -75,6 +89,7 @@ class BaseWidget(QWidget):
         self.state_manager = state_manager
         self.selected = False
         self._active = False
+        self._conditional_overrides: dict[str, Any] = {}
         self._shadow_effect: Optional[QGraphicsDropShadowEffect] = None
 
         self.setAttribute(Qt.WA_StyledBackground, True)
@@ -85,6 +100,11 @@ class BaseWidget(QWidget):
         self.build_ui()
         self.apply_style()
         self._safe_refresh_from_state()
+        QTimer.singleShot(0, lambda: animation_engine.play(
+            self,
+            self.get_prop("entrance_animation", "none"),
+            float(self.get_prop("animation_speed", 1.0)),
+        ))
 
     # -- to be implemented by subclasses ---------------------------------- #
     def build_ui(self) -> None:
@@ -96,6 +116,7 @@ class BaseWidget(QWidget):
     def _safe_refresh_from_state(self) -> None:
         # a bug/unexpected entity shape in one widget must never take down the
         # whole panel - log it and leave the widget showing its last good state
+        self.apply_conditional_style()
         try:
             self.refresh_from_state()
         except Exception:
@@ -110,6 +131,7 @@ class BaseWidget(QWidget):
             self.show()
             return
         expected = self.get_prop("visible_state", "on")
+        operator = self.get_prop("visible_operator", "equals")
         invert = self.get_prop("visible_invert", False)
         
         entity = None
@@ -119,7 +141,7 @@ class BaseWidget(QWidget):
         if entity is None:
             visible = False
         else:
-            visible = entity.state == expected
+            visible = matches_condition(entity.state, operator, expected)
             
         if invert:
             visible = not visible
@@ -184,8 +206,37 @@ class BaseWidget(QWidget):
 
     def on_state_changed(self, entity_id: str, new_state: dict) -> None:
         """Called by the dashboard when the bound entity updates."""
-        if entity_id == self.config.get("entity_id"):
+        monitored_entities = {
+            self.config.get("entity_id"),
+            self.get_prop("visible_entity", ""),
+            self.get_prop("style_entity", ""),
+        }
+        if entity_id in monitored_entities:
             self._safe_refresh_from_state()
+            animation_engine.play(
+                self,
+                self.get_prop("state_animation", "none"),
+                float(self.get_prop("animation_speed", 1.0)),
+            )
+
+    def apply_conditional_style(self) -> None:
+        """Apply the active style rule without altering the stored base style."""
+        overrides: dict[str, Any] = {}
+        if self.config.get("style_enabled", False):
+            entity_id = self.config.get("style_entity", "")
+            entity = self.state_manager.get_entity(entity_id) if self.state_manager and entity_id else None
+            if entity and matches_condition(
+                entity.state,
+                self.config.get("style_operator", "equals"),
+                self.config.get("style_value", ""),
+            ):
+                for key in ("bg_color", "text_color"):
+                    value = self.config.get(f"style_{key}", "")
+                    if value:
+                        overrides[key] = value
+        if overrides != self._conditional_overrides:
+            self._conditional_overrides = overrides
+            self.apply_style()
 
     # -- shared helpers ---------------------------------------------------- #
     @classmethod
@@ -193,6 +244,8 @@ class BaseWidget(QWidget):
         return COMMON_SCHEMA + cls.PROPERTY_SCHEMA
 
     def get_prop(self, key: str, fallback: Any = None) -> Any:
+        if key in self._conditional_overrides:
+            return self._conditional_overrides[key]
         for p in self.full_schema():
             if p.key == key:
                 return self.config.get(key, p.default)

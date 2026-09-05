@@ -141,3 +141,19 @@ class AppSettings:
     @standby_dim_opacity.setter
     def standby_dim_opacity(self, value: int) -> None:
         self.db.set_setting("standby_dim_opacity", int(value))
+
+    @property
+    def screensaver_mode(self) -> str:
+        return self.db.get_setting("screensaver_mode", "digital_clock")
+
+    @screensaver_mode.setter
+    def screensaver_mode(self, value: str) -> None:
+        self.db.set_setting("screensaver_mode", value)
+
+    @property
+    def screensaver_background_path(self) -> str:
+        return self.db.get_setting("screensaver_background_path", "")
+
+    @screensaver_background_path.setter
+    def screensaver_background_path(self, value: str) -> None:
+        self.db.set_setting("screensaver_background_path", value)

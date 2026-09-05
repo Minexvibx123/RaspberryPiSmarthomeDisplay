@@ -21,6 +21,7 @@ from app.core.service_registry import ServiceRegistry
 from app.plugins import discovery
 from app.plugins.api import Plugin, PluginManifest
 from app.plugins.plugin_settings import PluginSettings
+from app.widgets.registry import WIDGET_REGISTRY, unregister_widget_class
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class PluginManager:
         self.services = services
         self.plugins_root = Path(plugins_root)
         self._instances: dict[str, Plugin] = {}
+        self._registered_widget_types: dict[str, set[str]] = {}
         self._disabled: set[str] = set()
         self._errors: dict[str, str] = {}
 
@@ -64,11 +66,35 @@ class PluginManager:
         recorded as plugin errors. Call once at application startup.
         """
         self.plugins_root.mkdir(parents=True, exist_ok=True)
+        pending: dict[str, discovery.DiscoveredPlugin] = {}
         for found in discovery.discover(self.plugins_root):
             if found.error:
                 self._errors[found.plugin_id] = found.error
                 continue
-            self._load_one(found.plugin_dir, found.manifest)
+            pending[found.plugin_id] = found
+
+        while pending:
+            loaded_one = False
+            for plugin_id, found in list(pending.items()):
+                manifest = found.manifest
+                requirements = manifest.requires if manifest else []
+                missing = [requirement for requirement in requirements if requirement not in pending and requirement not in self._instances]
+                if missing:
+                    self._errors[plugin_id] = f"Fehlende Plugin-Abhängigkeit: {', '.join(missing)}"
+                    pending.pop(plugin_id)
+                    loaded_one = True
+                elif all(requirement in self._instances for requirement in requirements):
+                    self._load_one(found.plugin_dir, manifest)
+                    pending.pop(plugin_id)
+                    loaded_one = True
+            if loaded_one:
+                continue
+
+            for plugin_id, found in pending.items():
+                requirements = found.manifest.requires if found.manifest else []
+                unavailable = [requirement for requirement in requirements if requirement not in self._instances]
+                self._errors[plugin_id] = f"Nicht erfüllte Plugin-Abhängigkeiten: {', '.join(unavailable)}"
+            break
 
     def enable(self, plugin_id: str) -> bool:
         """Enable (and load) a plugin. Returns True on success."""
@@ -159,6 +185,12 @@ class PluginManager:
         if not self._is_enabled(pid, manifest):
             self._disabled.add(pid)
             return True
+        if pid in self._instances:
+            return True
+        missing = [requirement for requirement in (manifest.requires if manifest else []) if requirement not in self._instances]
+        if missing:
+            self._errors[pid] = f"Nicht erfüllte Plugin-Abhängigkeiten: {', '.join(missing)}"
+            return False
         instance, error = discovery.instantiate(plugin_dir)
         if error is not None or instance is None:
             self._errors[pid] = error or "Plugin konnte nicht instanziiert werden"
@@ -169,16 +201,20 @@ class PluginManager:
         instance.settings = PluginSettings(self.db, pid)
         instance.plugin_dir = str(plugin_dir)
 
+        widget_types_before = set(WIDGET_REGISTRY)
         try:
             instance.register_widgets()
         except Exception as exc:  # noqa: BLE001
             logger.exception("Widget registration failed for '%s'", pid)
+            self._unregister_widgets(pid, set(WIDGET_REGISTRY) - widget_types_before)
             self._errors[pid] = f"Widget-Registrierung fehlgeschlagen: {exc}"
             return False
+        self._registered_widget_types[pid] = set(WIDGET_REGISTRY) - widget_types_before
         try:
             instance.on_load()
         except Exception as exc:  # noqa: BLE001
             logger.exception("Plugin '%s' failed to load", pid)
+            self._unregister_widgets(pid)
             self._errors[pid] = f"on_load fehlgeschlagen: {exc}"
             return False
 
@@ -197,6 +233,12 @@ class PluginManager:
         except Exception as exc:  # noqa: BLE001
             logger.exception("Plugin '%s' failed to unload", plugin_id)
             self._errors[plugin_id] = f"on_unload fehlgeschlagen: {exc}"
+        finally:
+            self._unregister_widgets(plugin_id)
+
+    def _unregister_widgets(self, plugin_id: str, widget_types: Optional[set[str]] = None) -> None:
+        for type_name in widget_types or self._registered_widget_types.pop(plugin_id, set()):
+            unregister_widget_class(type_name)
 
     def _state_for(self, pid: str, manifest: Optional[PluginManifest], enabled: bool) -> tuple[str, Optional[str]]:
         if pid in self._errors:

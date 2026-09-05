@@ -1,0 +1,10 @@
+{
+  "id": "system_monitor",
+  "name": "System Monitoring",
+  "version": "1.0.0",
+  "description": "Raspberry Pi CPU, RAM, Speicher, Temperatur und Netzwerk",
+  "author": "HomePanel",
+  "enabled": true,
+  "category": "system",
+  "requires": []
+}

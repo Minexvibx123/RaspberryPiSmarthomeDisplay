@@ -1,5 +1,11 @@
 # SETUP-STATUS / Speicherpunkt (21.08.2026, ~23:20)
 
+> **Status (aktualisiert):** Das hier beschriebene Rendering-/Rotation-Problem
+> ist gelöst und der Autostart läuft stabil auf dem Pi. Diese Datei bleibt als
+> Hardware-Troubleshooting-Playbook für das DSI2/cage-Setup erhalten (Framebuffer-
+> Dump-Trick, Stolperfallen). Für den aktuellen Architektur- und Feature-Stand
+> siehe [AI-CONTEXT.md](AI-CONTEXT.md), für Installation/Update siehe [README.md](README.md).
+
 Stand der Dinge nach der Debugging-Session – hier weitermachen.
 
 ## Zugang zum Pi

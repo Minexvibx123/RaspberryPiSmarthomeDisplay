@@ -7,12 +7,19 @@ from __future__ import annotations
 
 import logging
 
-from app.plugins.api import Plugin as PluginBase
+from app.plugins.api import Plugin as PluginBase, PluginSettingDef
 
 logger = logging.getLogger(__name__)
 
 
 class Plugin(PluginBase):
+    settings_schema = [
+        PluginSettingDef("endpoint", "Lokale Dienstadresse", "text", "http://localhost"),
+        PluginSettingDef("poll_interval", "Aktualisierung (Sekunden)", "number", 30),
+        PluginSettingDef("notifications", "Benachrichtigungen", "bool", True),
+        PluginSettingDef("display_mode", "Anzeige", "select", "compact", ["compact", "detailed"]),
+    ]
+
     def on_load(self) -> None:
         # settings is a namespaced PluginSettings handle (plugin.example_plugin.*)
         if self.settings is not None:

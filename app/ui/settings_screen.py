@@ -7,10 +7,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QSlider,
-    QSpinBox, QTabWidget, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
+    QColorDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+    QListWidget, QListWidgetItem, QMessageBox, QPushButton, QSlider, QSpinBox,
+    QTabWidget, QVBoxLayout, QWidget,
 )
 
 from app.core.homeassistant import HomeAssistantClient
@@ -100,7 +102,43 @@ class SettingsScreen(QWidget):
         dim_opacity_row.addWidget(self.dim_opacity_label)
         form.addRow("Abdunkel-Stärke (%)", dim_opacity_row)
 
+        self.screensaver_mode_combo = QComboBox()
+        self.screensaver_mode_combo.addItem("Digitale Uhr", "digital_clock")
+        self.screensaver_mode_combo.addItem("Systeminformationen", "system_info")
+        current_mode_index = self.screensaver_mode_combo.findData(self.settings.screensaver_mode)
+        self.screensaver_mode_combo.setCurrentIndex(max(0, current_mode_index))
+        self.screensaver_mode_combo.currentIndexChanged.connect(
+            lambda index: setattr(self.settings, "screensaver_mode", self.screensaver_mode_combo.itemData(index))
+        )
+        form.addRow("Screensaver-Modus", self.screensaver_mode_combo)
+
+        background_row = QHBoxLayout()
+        self.screensaver_background_edit = QLineEdit(self.settings.screensaver_background_path)
+        self.screensaver_background_edit.setReadOnly(True)
+        browse_background_btn = QPushButton("Durchsuchen…")
+        browse_background_btn.clicked.connect(self._pick_screensaver_background)
+        clear_background_btn = QPushButton("✕")
+        clear_background_btn.setFixedWidth(28)
+        clear_background_btn.clicked.connect(self._clear_screensaver_background)
+        background_row.addWidget(self.screensaver_background_edit, 1)
+        background_row.addWidget(browse_background_btn)
+        background_row.addWidget(clear_background_btn)
+        form.addRow("Hintergrundbild", background_row)
+
         return w
+
+    def _pick_screensaver_background(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Hintergrundbild auswählen", "",
+            "Bilder (*.png *.jpg *.jpeg *.webp *.bmp)",
+        )
+        if path:
+            self.settings.screensaver_background_path = path
+            self.screensaver_background_edit.setText(path)
+
+    def _clear_screensaver_background(self) -> None:
+        self.settings.screensaver_background_path = ""
+        self.screensaver_background_edit.setText("")
 
     def _on_dim_opacity_changed(self, value: int) -> None:
         self.settings.standby_dim_opacity = value
@@ -120,10 +158,17 @@ class SettingsScreen(QWidget):
         self._plugin_enable_btn = QPushButton("Aktivieren")
         self._plugin_disable_btn = QPushButton("Deaktivieren")
         self._plugin_reload_btn = QPushButton("Neu laden")
+        self._plugin_settings_btn = QPushButton("Einstellungen")
         self._plugin_enable_btn.clicked.connect(self._enable_selected_plugin)
         self._plugin_disable_btn.clicked.connect(self._disable_selected_plugin)
         self._plugin_reload_btn.clicked.connect(self._reload_selected_plugin)
-        for b in (self._plugin_enable_btn, self._plugin_disable_btn, self._plugin_reload_btn):
+        self._plugin_settings_btn.clicked.connect(self._open_selected_plugin_settings)
+        for b in (
+            self._plugin_enable_btn,
+            self._plugin_disable_btn,
+            self._plugin_reload_btn,
+            self._plugin_settings_btn,
+        ):
             btns.addWidget(b)
         layout.addLayout(btns)
 
@@ -166,6 +211,73 @@ class SettingsScreen(QWidget):
             self.plugin_manager.reload(pid)
             self._refresh_plugin_list()
 
+    def _open_selected_plugin_settings(self) -> None:
+        plugin_id = self._selected_plugin_id()
+        if not plugin_id:
+            return
+        plugin = self.plugin_manager.get_instance(plugin_id)
+        if plugin is None:
+            QMessageBox.warning(self, "Plugin-Einstellungen", "Das Plugin muss aktiviert sein.")
+            return
+
+        schema = getattr(plugin, "settings_schema", [])
+        if not schema:
+            QMessageBox.information(self, "Plugin-Einstellungen", "Dieses Plugin hat keine Einstellungen.")
+            return
+
+        try:
+            for definition in schema:
+                definition.validate()
+        except (AttributeError, ValueError) as exc:
+            QMessageBox.warning(self, "Plugin-Einstellungen", f"Ungültiges Einstellungs-Schema: {exc}")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"{plugin.manifest.name} - Einstellungen")
+        layout = QVBoxLayout(dialog)
+        form = QFormLayout()
+        fields = {}
+        for definition in schema:
+            value = plugin.settings.get(definition.key, definition.default)
+            if definition.field_type == "bool":
+                field = QCheckBox()
+                field.setChecked(bool(value))
+            elif definition.field_type == "number":
+                field = QDoubleSpinBox()
+                field.setRange(-999999.0, 999999.0)
+                field.setDecimals(3)
+                field.setValue(float(value or 0))
+            elif definition.field_type == "select":
+                field = QComboBox()
+                field.addItems(definition.options)
+                field.setCurrentText(str(value if value is not None else definition.default))
+            else:
+                field = QLineEdit(str(value if value is not None else ""))
+            fields[definition.key] = field
+            form.addRow(definition.label, field)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Save)
+        buttons.rejected.connect(dialog.reject)
+        buttons.accepted.connect(lambda: self._save_plugin_settings(plugin, schema, fields, dialog))
+        layout.addWidget(buttons)
+        dialog.exec()
+
+    @staticmethod
+    def _save_plugin_settings(plugin, schema, fields, dialog: QDialog) -> None:
+        for definition in schema:
+            field = fields[definition.key]
+            if definition.field_type == "bool":
+                value = field.isChecked()
+            elif definition.field_type == "number":
+                value = field.value()
+            elif definition.field_type == "select":
+                value = field.currentText()
+            else:
+                value = field.text().strip()
+            plugin.settings.set(definition.key, value)
+        dialog.accept()
+
     def _build_ha_tab(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
@@ -206,6 +318,10 @@ class SettingsScreen(QWidget):
             row.addWidget(btn)
         v.addLayout(row)
 
+        edit_theme_btn = QPushButton("Theme bearbeiten")
+        edit_theme_btn.clicked.connect(self._edit_theme)
+        v.addWidget(edit_theme_btn)
+
         mode_row = QHBoxLayout()
         mode_row.addWidget(QLabel("Modus"))
         mode_combo = QComboBox()
@@ -216,6 +332,76 @@ class SettingsScreen(QWidget):
         v.addLayout(mode_row)
         v.addStretch()
         return w
+
+    def _edit_theme(self) -> None:
+        config = dict(self.theme_manager.active())
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Theme bearbeiten")
+        layout = QVBoxLayout(dialog)
+        form = QFormLayout()
+        name = QLineEdit(config.get("name", "Mein Theme"))
+        form.addRow("Name", name)
+
+        mode = QComboBox()
+        mode.addItems(["dark", "light"])
+        mode.setCurrentText(config.get("mode", "dark"))
+        form.addRow("Modus", mode)
+
+        color_fields = {}
+        for key, label in (
+            ("background", "Hintergrund"),
+            ("surface", "Fläche"),
+            ("primary", "Primärfarbe"),
+            ("secondary", "Sekundärfarbe"),
+            ("accent", "Akzentfarbe"),
+            ("text", "Textfarbe"),
+            ("text_secondary", "Sekundärtext"),
+        ):
+            button = QPushButton(config.get(key, "#FFFFFF"))
+            button.setStyleSheet(f"background-color: {button.text()};")
+
+            def choose_color(_checked=False, field=button):
+                color = QColorDialog.getColor(QColor(field.text()), dialog)
+                if color.isValid():
+                    field.setText(color.name())
+                    field.setStyleSheet(f"background-color: {color.name()};")
+
+            button.clicked.connect(choose_color)
+            color_fields[key] = button
+            form.addRow(label, button)
+
+        numeric_fields = {}
+        for key, label, minimum, maximum in (
+            ("card_radius", "Eckenradius", 0, 60),
+            ("card_opacity", "Flächen-Transparenz", 10, 100),
+            ("font_size_base", "Schriftgröße", 8, 32),
+            ("spacing", "Abstand", 0, 40),
+        ):
+            field = QSpinBox()
+            field.setRange(minimum, maximum)
+            field.setValue(int(config.get(key, minimum)))
+            numeric_fields[key] = field
+            form.addRow(label, field)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Save)
+        buttons.rejected.connect(dialog.reject)
+
+        def save_theme() -> None:
+            updated = dict(config)
+            updated["name"] = name.text().strip() or "Mein Theme"
+            updated["mode"] = mode.currentText()
+            updated.update({key: field.text() for key, field in color_fields.items()})
+            updated.update({key: field.value() for key, field in numeric_fields.items()})
+            self.theme_manager.save_custom(updated["name"], updated, set_active=True)
+            self.theme_manager.apply(self.app, updated)
+            if self.on_theme_applied:
+                self.on_theme_applied()
+            dialog.accept()
+
+        buttons.accepted.connect(save_theme)
+        layout.addWidget(buttons)
+        dialog.exec()
 
     def _build_security_tab(self) -> QWidget:
         w = QWidget()

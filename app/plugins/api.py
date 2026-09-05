@@ -55,6 +55,35 @@ class PluginManifest:
             raise ValueError(f"Plugin '{self.id}' is missing 'version'")
 
 
+@dataclass
+class PluginSettingDef:
+    """Declarative definition of one plugin setting (for the settings UI).
+
+    Mirrors the widget ``PropertyDef`` pattern: a plugin declares a
+    ``settings_schema`` list of these and the Plugins tab renders a form
+    automatically. Values are persisted through the namespaced
+    :class:`~app.plugins.plugin_settings.PluginSettings` handle.
+    """
+
+    key: str
+    label: str
+    field_type: str = "text"  # "text" | "number" | "bool" | "select"
+    default: Any = None
+    options: list[str] = field(default_factory=list)
+
+    def validate(self) -> None:
+        if not self.key:
+            raise ValueError("PluginSettingDef requires a 'key'")
+        if not self.label:
+            raise ValueError(f"PluginSettingDef '{self.key}' requires a 'label'")
+        if self.field_type not in ("text", "number", "bool", "select"):
+            raise ValueError(
+                f"PluginSettingDef '{self.key}': unknown field_type '{self.field_type}'"
+            )
+        if self.field_type == "select" and not self.options:
+            raise ValueError(f"PluginSettingDef '{self.key}': select needs options")
+
+
 class Plugin:
     """Base class plugins subclass.
 
@@ -96,6 +125,10 @@ class Plugin:
         Default does nothing. Subclasses import their widget classes and call
         :func:`app.widgets.registry.register_widget_class` for each.
         """
+
+    def create_app_view(self, parent=None):
+        """Return an optional full-screen internal app view for the launcher."""
+        return None
 
     # -- helpers ---------------------------------------------------------- #
     @property

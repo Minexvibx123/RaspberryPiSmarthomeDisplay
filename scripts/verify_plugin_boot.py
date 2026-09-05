@@ -52,6 +52,14 @@ check("Example plugin state enabled", example is not None and example.state == "
       f"state={example.state if example else None}")
 check("Example plugin version 1.0.0", example is not None and example.version == "1.0.0",
       f"version={example.version if example else None}")
+system_monitor = next((info for info in infos if info.id == "system_monitor"), None)
+check("System monitor plugin discovered", system_monitor is not None)
+check("System monitor plugin enabled", system_monitor is not None and system_monitor.state == "enabled",
+    f"state={system_monitor.state if system_monitor else None}")
+from app.widgets.registry import WIDGET_REGISTRY  # noqa: E402
+check("System monitor widgets registered", all(widget_type in WIDGET_REGISTRY for widget_type in (
+    "system_cpu", "system_ram", "system_storage", "system_network",
+)))
 check("No plugin errors", all(i.error is None for i in infos), f"errors={[(i.id, i.error) for i in infos if i.error]}")
 check("Instance loaded", pm.get_instance("example_plugin") is not None)
 
@@ -64,8 +72,13 @@ check("SettingsScreen exists", hasattr(window, "settings_screen"))
 tab = window.settings_screen._plugin_list  # the QListWidget with plugin entries
 check("Plugin list widget present", isinstance(tab, QListWidget), type(tab).__name__)
 rows = [tab.item(i).text() for i in range(tab.count())]
-check("Plugins tab has 1 row", len(rows) == 1, f"rows={rows}")
+check("Plugins tab has installed plugins", len(rows) >= 2, f"rows={rows}")
 check("Row shows name+version+state", any("Beispiel Plugin v1.0.0 [enabled]" in r for r in rows), f"rows={rows}")
+example_instance = pm.get_instance("example_plugin")
+schema = getattr(example_instance, "settings_schema", [])
+check("Plugin declares settings schema", len(schema) == 4, f"schema={schema}")
+check("Plugin settings schema is valid", all(definition.validate() is None for definition in schema))
+check("Plugin settings control exists", window.settings_screen._plugin_settings_btn is not None)
 
 # --- 4. UI callbacks: disable -> enable -> reload ---------------------- #
 def select_row(text_fragment: str) -> None:
@@ -78,19 +91,19 @@ def select_row(text_fragment: str) -> None:
 select_row("Beispiel Plugin")
 window.settings_screen._disable_selected_plugin()
 rows = [tab.item(i).text() for i in range(tab.count())]
-check("Disable via UI -> state disabled", "Beispiel Plugin v1.0.0 [disabled]" in rows[0], f"rows={rows}")
+check("Disable via UI -> state disabled", any("Beispiel Plugin v1.0.0 [disabled]" in row for row in rows), f"rows={rows}")
 check("Disable persists override", window.db.get_setting("plugin.enabled.example_plugin", None) is False)
 
 select_row("Beispiel Plugin")
 window.settings_screen._enable_selected_plugin()
 rows = [tab.item(i).text() for i in range(tab.count())]
-check("Enable via UI -> state enabled", "Beispiel Plugin v1.0.0 [enabled]" in rows[0], f"rows={rows}")
+check("Enable via UI -> state enabled", any("Beispiel Plugin v1.0.0 [enabled]" in row for row in rows), f"rows={rows}")
 check("Enable clears override", window.db.get_setting("plugin.enabled.example_plugin", None) is True)
 
 select_row("Beispiel Plugin")
 window.settings_screen._reload_selected_plugin()
 rows = [tab.item(i).text() for i in range(tab.count())]
-check("Reload via UI -> still enabled", "Beispiel Plugin v1.0.0 [enabled]" in rows[0], f"rows={rows}")
+check("Reload via UI -> still enabled", any("Beispiel Plugin v1.0.0 [enabled]" in row for row in rows), f"rows={rows}")
 check("Reload kept instance", pm.get_instance("example_plugin") is not None)
 count = window.db.get_setting("plugin.example_plugin.load_count", 0)
 check("Reload ran on_load again (load_count incremented)", int(count or 0) >= 2, f"load_count={count}")

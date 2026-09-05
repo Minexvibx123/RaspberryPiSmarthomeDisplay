@@ -1,3 +1,6 @@
 PySide6>=6.6
 requests>=2.31
 websocket-client>=1.7
+# Optional: QtWebEngineWidgets (Web-Panel widget, internal Browser app) ships
+# as part of the PySide6 wheel on most platforms. If it is missing on your
+# system, both features degrade gracefully instead of crashing HomePanel.

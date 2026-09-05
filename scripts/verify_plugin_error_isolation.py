@@ -53,6 +53,11 @@ GOOD_MANIFEST = {
     "enabled": True, "category": "general",
 }
 
+DEPENDENT_MANIFEST = {
+    "id": "dependent_plugin", "name": "Abhängiges Plugin", "version": "1.0.0",
+    "enabled": True, "requires": ["good_plugin"],
+}
+
 # --- build the good plugin (valid) -------------------------------------- #
 good = plugins_root / "good_plugin"
 good.mkdir()
@@ -69,6 +74,43 @@ good.mkdir()
             self.settings.set("marker", "good")
             self.loaded_via = db
 '''[1:]), encoding="utf-8")
+
+# --- dependent plugin: sorts before its dependency, must load afterwards -- #
+dependent = plugins_root / "dependent_plugin"
+dependent.mkdir()
+(dependent / "manifest.json").write_text(json.dumps(DEPENDENT_MANIFEST, indent=2), encoding="utf-8")
+(dependent / "plugin.py").write_text(textwrap.dedent('''
+    from app.plugins.api import Plugin
+
+
+    class Plugin(Plugin):
+        def on_load(self):
+            self.settings.set("dependency_loaded", True)
+'''[1:]), encoding="utf-8")
+
+# --- package plugin: proves local API/widget modules can use relative imports #
+package_plugin = plugins_root / "package_plugin"
+package_plugin.mkdir()
+(package_plugin / "manifest.json").write_text(json.dumps(
+    {"id": "package_plugin", "name": "Paket Plugin", "version": "1.0.0"}, indent=2), encoding="utf-8")
+(package_plugin / "api.py").write_text("MARKER = 'relative import works'\n", encoding="utf-8")
+(package_plugin / "plugin.py").write_text(textwrap.dedent('''
+    from app.plugins.api import Plugin
+    from .api import MARKER
+
+
+    class Plugin(Plugin):
+        def on_load(self):
+            self.settings.set("import_marker", MARKER)
+'''[1:]), encoding="utf-8")
+
+# --- missing dependency: must report an error without affecting others --- #
+missing_dependency = plugins_root / "missing_dependency"
+missing_dependency.mkdir()
+(missing_dependency / "manifest.json").write_text(json.dumps(
+    {"id": "missing_dependency", "name": "Fehlende Abhängigkeit", "version": "1.0.0", "requires": ["does_not_exist"]},
+    indent=2), encoding="utf-8")
+(missing_dependency / "plugin.py").write_text("from app.plugins.api import Plugin\n", encoding="utf-8")
 
 # --- broken plugin 1: invalid manifest JSON ------------------------------ #
 broken_manifest = plugins_root / "broken_manifest"
@@ -158,6 +200,15 @@ check("good_plugin instance loaded", pm.get_instance("good_plugin") is not None)
 check("good_plugin services+settings worked",
       db.get_setting("plugin.good_plugin.marker") == "good",
       f"marker={db.get_setting('plugin.good_plugin.marker')}")
+check("dependent plugin loaded after requirement", infos["dependent_plugin"].state == "enabled",
+    infos["dependent_plugin"].state)
+check("dependent plugin lifecycle ran", db.get_setting("plugin.dependent_plugin.dependency_loaded") is True)
+check("local relative import plugin loaded", infos["package_plugin"].state == "enabled",
+    infos["package_plugin"].state)
+check("local relative import lifecycle ran",
+    db.get_setting("plugin.package_plugin.import_marker") == "relative import works")
+check("missing dependency isolated", infos["missing_dependency"].state == "error",
+    infos["missing_dependency"].error)
 
 # isolation: all broken plugins produce error state, never raise
 check("broken_manifest isolated", infos["broken_manifest"].state == "error",
@@ -207,10 +258,11 @@ check("widget type count unchanged after reload",
       len(widget_registry.WIDGET_REGISTRY) == builtin_count + 1,
       f"before={builtin_count} now={len(widget_registry.WIDGET_REGISTRY)}")
 
-# unload plugin -> widget class stays registered (registered classes are global)
+# unload plugin -> its dynamic widget type is no longer available
 pm.disable("widget_plugin")
 check("widget plugin disabled ok", all(
     i.state == "disabled" for i in pm.list_plugins() if i.id == "widget_plugin"))
+check("unload removes plugin widget", "test_widget_plugin" not in widget_registry.WIDGET_REGISTRY)
 
 # --- cleanup ------------------------------------------------------------- #
 shutil.rmtree(tmp, ignore_errors=True)

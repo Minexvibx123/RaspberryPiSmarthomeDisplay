@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QTimer, Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox,
     QPushButton, QStackedWidget, QVBoxLayout, QWidget,
@@ -21,8 +21,10 @@ from app.core.database import Database
 from app.core.settings import AppSettings
 from app.core.state_manager import StateManager
 from app.core.service_registry import ServiceRegistry
+from app.core.workflows import WorkflowEngine
 from app.plugins.manager import PluginManager
 from app.ui.dashboard import ConnectionBadge, DashboardCanvas
+from app.ui.app_launcher import AppLauncher
 from app.ui.editor import EditorScreen
 from app.ui.navigation import NavigationBar
 from app.ui.settings_screen import SettingsScreen
@@ -64,7 +66,7 @@ class CornerGestureZone(QWidget):
 class DashboardView(QWidget):
     """Normal (non-editor) run mode."""
 
-    def __init__(self, db, state_manager, settings, on_request_edit, on_request_settings, on_navigate_page, design_size, parent=None):
+    def __init__(self, db, state_manager, settings, on_request_edit, on_request_settings, on_request_apps, on_navigate_page, design_size, parent=None):
         super().__init__(parent)
         self.db = db
         self.settings = settings
@@ -81,6 +83,9 @@ class DashboardView(QWidget):
         settings_btn.setFixedSize(40, 40)
         settings_btn.clicked.connect(on_request_settings)
         top_bar.addWidget(settings_btn)
+        apps_btn = QPushButton("Apps")
+        apps_btn.clicked.connect(on_request_apps)
+        top_bar.addWidget(apps_btn)
         root.addLayout(top_bar)
 
         self.canvas = DashboardCanvas(state_manager, db, design_size)
@@ -110,21 +115,31 @@ class _StandbyOverlay(QWidget):
 
     interacted = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, settings=None):
         super().__init__(parent)
+        self._settings = settings
         self.setAutoFillBackground(True)
+        self._background_label = QLabel(self)
+        self._background_label.setScaledContents(True)
+        self._background_label.lower()
         self._timer_label = QLabel(self)
         self._timer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._timer_label.setStyleSheet("color: white; font-size: 48px; font-weight: 300;")
         self._date_label = QLabel(self)
         self._date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._date_label.setStyleSheet("color: rgba(255,255,255,150); font-size: 18px;")
+        self._info_label = QLabel(self)
+        self._info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._info_label.setStyleSheet("color: rgba(255,255,255,190); font-size: 16px;")
         layout = QVBoxLayout(self)
         layout.addWidget(self._timer_label, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._date_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._info_label, alignment=Qt.AlignmentFlag.AlignCenter)
         self._clock_timer = QTimer(self)
         self._clock_timer.timeout.connect(self._update_time)
         self._clock_timer.start(1000)
+        self._info_timer = QTimer(self)
+        self._info_timer.timeout.connect(self._update_info)
         self._update_time()
 
     def set_darkness(self, opacity_percent: int) -> None:
@@ -134,6 +149,7 @@ class _StandbyOverlay(QWidget):
         self.setPalette(pal)
         self._timer_label.setVisible(True)
         self._date_label.setVisible(True)
+        self._apply_screensaver_mode()
 
     def set_fully_black(self) -> None:
         pal = self.palette()
@@ -141,12 +157,60 @@ class _StandbyOverlay(QWidget):
         self.setPalette(pal)
         self._timer_label.setVisible(True)
         self._date_label.setVisible(True)
+        self._apply_screensaver_mode()
+
+    def _apply_screensaver_mode(self) -> None:
+        background_path = self._settings.screensaver_background_path if self._settings else ""
+        pixmap = QPixmap(background_path) if background_path else None
+        if pixmap and not pixmap.isNull():
+            self._background_label.setPixmap(pixmap)
+            self._background_label.setGeometry(self.rect())
+            self._background_label.show()
+        else:
+            self._background_label.hide()
+
+        mode = self._settings.screensaver_mode if self._settings else "digital_clock"
+        if mode == "system_info":
+            self._info_label.show()
+            self._update_info()
+            self._info_timer.start(5000)
+        else:
+            self._info_timer.stop()
+            self._info_label.hide()
+
+    def _update_info(self) -> None:
+        try:
+            import os
+
+            load_percent = min(100, round(os.getloadavg()[0] * 100 / max(1, os.cpu_count() or 1)))
+            meminfo = {}
+            for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+                key, value = line.split(":", 1)
+                meminfo[key] = int(value.split()[0])
+            mem_percent = round(100 * (1 - meminfo.get("MemAvailable", meminfo.get("MemFree", 0)) / max(1, meminfo.get("MemTotal", 1))))
+            temperature = None
+            for zone in glob.glob("/sys/class/thermal/thermal_zone*/temp"):
+                try:
+                    temperature = int(Path(zone).read_text(encoding="utf-8").strip()) / 1000
+                    break
+                except (OSError, ValueError):
+                    continue
+            text = f"CPU {load_percent}%  RAM {mem_percent}%"
+            if temperature is not None:
+                text += f"  {temperature:.1f} °C"
+            self._info_label.setText(text)
+        except OSError:
+            self._info_label.setText("Systeminformationen nicht verfügbar")
 
     def _update_time(self) -> None:
         from datetime import datetime
         now = datetime.now()
         self._timer_label.setText(now.strftime("%H:%M"))
         self._date_label.setText(now.strftime("%A, %d. %B %Y"))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._background_label.setGeometry(self.rect())
 
     def mousePressEvent(self, event) -> None:
         self.interacted.emit()
@@ -226,7 +290,7 @@ class MainWindow(QMainWindow):
 
         self._standby_state = "NORMAL"
         self._saved_backlight: dict = {}
-        self._overlay = _StandbyOverlay(self)
+        self._overlay = _StandbyOverlay(self, settings=self.settings)
         self._overlay.interacted.connect(self.wake_from_standby)
         self._overlay.hide()
 
@@ -242,7 +306,7 @@ class MainWindow(QMainWindow):
         self._legacy_timer = QTimer(self)
         self._legacy_timer.setSingleShot(True)
         self._legacy_timer.timeout.connect(self._show_legacy_screensaver)
-        self._legacy_overlay = _StandbyOverlay(self)
+        self._legacy_overlay = _StandbyOverlay(self, settings=self.settings)
         self._legacy_overlay.interacted.connect(self._wake_legacy)
         self._legacy_overlay.hide()
         self._legacy_active = False
@@ -278,6 +342,9 @@ class MainWindow(QMainWindow):
         self.plugin_manager.load_all()
         self.services.register("plugin_manager", self.plugin_manager)
 
+        self.workflow_engine = WorkflowEngine(self.db, self.state_manager)
+        self.services.register("workflow_engine", self.workflow_engine)
+
         design_size = self.settings.effective_design_resolution
         pages = self.db.list_pages()
         first_page_id = pages[0].id if pages else self.db.create_page("Home").id
@@ -286,6 +353,7 @@ class MainWindow(QMainWindow):
             self.db, self.state_manager, self.settings,
             on_request_edit=self._request_edit_mode,
             on_request_settings=self._show_settings,
+            on_request_apps=self._show_apps,
             on_navigate_page=self._navigate_to_page_name,
             design_size=design_size,
         )
@@ -307,6 +375,8 @@ class MainWindow(QMainWindow):
         for w in (self.dashboard_view, self.editor_screen, settings_wrap):
             self.stack.addWidget(w)
         self.settings_wrap = settings_wrap
+        self.app_launcher = AppLauncher(self.plugin_manager, self._open_plugin_app)
+        self.stack.addWidget(self.app_launcher)
 
         self.dashboard_view.load_page(first_page_id)
         self.stack.setCurrentWidget(self.dashboard_view)
@@ -331,6 +401,15 @@ class MainWindow(QMainWindow):
 
     def _show_settings(self) -> None:
         self.stack.setCurrentWidget(self.settings_wrap)
+
+    def _show_apps(self) -> None:
+        self.stack.setCurrentWidget(self.app_launcher)
+
+    def _open_plugin_app(self, plugin_id: str) -> None:
+        view = self.plugin_manager.get_instance(plugin_id).create_app_view(self)
+        if view is not None:
+            self.stack.addWidget(view)
+            self.stack.setCurrentWidget(view)
 
     def _navigate_to_page_name(self, page_name: str) -> None:
         for page in self.db.list_pages():

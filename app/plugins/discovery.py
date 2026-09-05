@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -81,10 +82,15 @@ def instantiate(plugin_dir: Path) -> tuple[Optional[Plugin], Optional[str]]:
     # A unique module name avoids collisions between same-named plugins.
     module_name = f"_homepanel_plugin_{plugin_dir.name}"
     try:
-        spec = importlib.util.spec_from_file_location(module_name, plugin_py)
+        spec = importlib.util.spec_from_file_location(
+            module_name,
+            plugin_py,
+            submodule_search_locations=[str(plugin_dir)],
+        )
         if spec is None or spec.loader is None:
             return None, "plugin.py konnte nicht geladen werden"
         module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
         spec.loader.exec_module(module)
     except Exception as exc:  # noqa: BLE001 - plugin import failure must be isolated
         logger.exception("Failed to import plugin from %s", plugin_dir)

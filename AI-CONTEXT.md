@@ -10,7 +10,7 @@
 
 **Core Value Proposition**: Users can visually design their home dashboard by dragging, dropping, resizing, and configuring widgets directly on the touchscreen — no YAML, no JSON, no code editing required.
 
-**Current State**: The project is functional and running on physical hardware. It has a complete widget system, visual editor, theme system, and deployment pipeline. There are no unit tests.
+**Current State**: The project is functional and running on physical hardware. It has a complete widget system, visual editor, theme system, deployment pipeline, a full Phase 1-5 plugin architecture (animations, conditional styling, safe expressions, custom widget builder, a list-based workflow engine, and extended backup), plus real integrations for Flashforge, Pi-hole, Docker, local network devices, system monitoring, and an optional internal browser. Headless verification scripts in `scripts/verify_*.py` (16 as of this writing) cover plugin lifecycle/error isolation, widgets, conditions, animations, templates, backup, workflows, expressions, and the custom widget builder - run them after any change to the touched area.
 
 ---
 
@@ -113,12 +113,26 @@ homepanel/
 │                                 #   News
 ├── data/                         # Runtime data
 │   └── homepanel.db              # SQLite database (auto-created)
+├── plugins/                      # Real Phase 3+ integrations (see AI-CONTEXT 5.6)
+│   ├── example_plugin/           # Minimal reference plugin (lifecycle proof)
+│   ├── system_monitor/           # CPU/RAM/Storage/Network/Service widgets, /proc + /sys only
+│   ├── flashforge/               # Flashforge TCP client (port 8899) + status/control widgets
+│   ├── pihole/                   # Pi-hole v6 REST client + stats/control widgets
+│   ├── network/                  # ping-based NetworkDeviceWidget
+│   ├── docker/                   # docker CLI wrapper + DockerWidget (start/stop/restart)
+│   └── browser/                  # Optional QtWebEngine internal browser app
 ├── scripts/
 │   ├── install.sh                # One-time Pi installer (venv, service, udev rules)
 │   ├── kiosk-start.sh            # Kiosk mode launcher
 │   ├── sync-pi.sh                # Deploy code to Pi via SCP
 │   ├── diagnose-pi.sh            # Diagnostic commands for Pi
-│   └── configure_ha.py           # Interactive HA configuration script
+│   ├── configure_ha.py           # Interactive HA configuration script
+│   ├── install-github.sh         # First-time install directly from GitHub
+│   ├── update-github.sh          # Safe fast-forward update from GitHub
+│   └── verify_*.py               # Headless regression suite (16 scripts) - plugin boot,
+│                                 #   error isolation, conditions, animations, templates,
+│                                 #   docker, system monitor, expressions, workflows,
+│                                 #   backup, custom widget, screensaver, web widget
 ├── systemd/
 │   └── homepanel.service         # systemd unit file (template with /home/pi placeholders)
 ├── thoughts/                     # Development notes
@@ -126,7 +140,7 @@ homepanel/
 ├── requirements.txt              # Python dependencies
 ├── README.md                     # User-facing documentation (German)
 ├── AI-CONTEXT.md                 # THIS FILE — technical reference for AI assistants
-├── SETUP-STATUS.md               # Deployment status / debugging notes
+├── SETUP-STATUS.md               # Hardware bring-up notes (Pi 5 DSI/cage rendering fix)
 ├── LICENSE                       # MIT license
 └── .gitignore
 ```
@@ -142,6 +156,10 @@ homepanel/
 3. If `setup_complete == False`: shows `SetupWizard` (language, HA URL/token, or demo mode)
 4. If `setup_complete == True`: calls `_start_runtime()`:
    - Creates `StateManager` → starts REST fetch + WebSocket connection
+    - Creates `ServiceRegistry` → registers database, settings, state manager
+    - Creates `PluginManager` → discovers, resolves and loads enabled plugins
+    - Creates `WorkflowEngine` (`app/core/workflows.py`) → registered in `ServiceRegistry`,
+      listens to `StateManager.entity_updated` for WHEN/THEN/WAIT automations
    - Creates `DashboardView` (canvas + nav bar + settings button + corner gesture zone)
    - Creates `EditorScreen`
    - Creates `SettingsScreen`
@@ -175,8 +193,10 @@ Database (app/core/database.py)
     ├── pages table: id, name, icon, order_index, bg_image_path, bg_fit
     ├── widgets table: id, page_id, type, x, y, w, h, z, config (JSON)
     ├── themes table: id, name, config (JSON), is_active, built_in
+    ├── templates table: id, name, kind (widget|page), type, config (JSON), created_at
+    ├── workflows table: id, name, trigger_entity, trigger_state, steps (JSON), enabled
     ├── settings table: key, value (JSON)
-    ├── export_config() → full JSON export (optionally including secrets)
+    ├── export_config() → JSON export incl. templates/workflows; secrets excluded by default
     └── import_config() → restore from JSON export
 
 AppSettings (app/core/settings.py)
@@ -184,7 +204,8 @@ AppSettings (app/core/settings.py)
         ├── language, ha_url, ha_token, demo_mode, setup_complete
         ├── edit_pin, orientation, design_resolution, navigation_style
         ├── theme_mode, standby_enabled, standby_dim_minutes, standby_off_minutes
-        └── standby_dim_opacity
+        ├── standby_dim_opacity
+        └── screensaver_mode, screensaver_background_path
 ```
 
 ### 5.3 Widget System
@@ -217,7 +238,7 @@ class MyWidget(BaseWidget):
         """Update visuals from current entity state."""
 ```
 
-**PropertyDef types**: `text`, `number`, `color`, `bool`, `select`, `icon`, `entity`, `font_size`, `image`
+**PropertyDef types**: `text`, `number`, `color`, `bool`, `select`, `icon`, `entity`, `font_size`, `image`, `action` (renders a button that opens a builder dialog, e.g. the Custom Widget element editor)
 
 **COMMON_SCHEMA** (18 properties applied to ALL widgets):
 - Appearance: `bg_color`, `text_color`, `accent_color`, `radius`, `opacity`
@@ -253,18 +274,117 @@ WIDGET_CLASSES: list[type[BaseWidget]] = [
     CameraWidget, ContainerWidget, MediaPlayerWidget, NotificationWidget,
     SensorGraphWidget, TimerWidget,
     ConsoleWidget, EnergyWidget,
+    WebWidget,
+    CustomWidget,
 ]
 
 WIDGET_REGISTRY: dict[str, type[BaseWidget]] = {cls.type_name: cls for cls in WIDGET_CLASSES}
 ```
 
-**38 registered widget types** across 4 categories:
-- **Steuerung** (Control): Button, Light, Switch, Slider, Thermostat, Cover, MediaPlayer, Timer, Fan, Lock, Humidifier, AlarmPanel, Vacuum, SceneGrid, NumberInput, Select
-- **Anzeige** (Display): Sensor, Weather, Clock, Text, Icon, EntityList, Camera, SensorGraph, Calendar, TodoList, Person, Container, Notification, Energy
-- **Internet**: CryptoPrice, StockPrice, Currency, Quote, Joke, Holiday, InternetStatus, News
-- **System**: SystemMonitor, Console
+**42 core registered widget types** across 7 categories (plugins add more at runtime -
+see 5.6):
+- **Steuerung** (Control, 16): Button, Light, Switch, Slider, Thermostat, Cover, MediaPlayer, Timer, Fan, Lock, Humidifier, AlarmPanel, Vacuum, SceneGrid, NumberInput, Select
+- **Anzeige** (Display, 13): Sensor, Weather, Clock, Text, Icon, EntityList, Camera, SensorGraph, Calendar, TodoList, Person, Notification, Energy
+- **Internet** (8): CryptoPrice, StockPrice, Currency, Quote, Joke, Holiday, InternetStatus, News
+- **System** (2): SystemMonitor (built-in demo widget), Console
+- **Allgemein** (1): Container
+- **Apps** (1): `WebWidget` - optional QtWebEngine-backed panel, degrades to a
+  text message if `PySide6.QtWebEngineWidgets` is not installed (never crashes)
+- **Custom** (1): `CustomWidget` - see 5.13 Custom Widget Builder
 
-### 5.5 Theme System
+### 5.5 Phase 1 Plugin Architecture
+
+Plugins live in `plugins/<plugin-id>/` and contain `manifest.json` plus a
+`plugin.py` with a `Plugin` subclass. The supported lifecycle is:
+
+1. `PluginManager.load_all()` discovers and validates manifests.
+2. `requires` is resolved as a list of plugin IDs; dependencies load before
+    their dependants. Missing, disabled, failed, or cyclic requirements place
+    only the affected plugin in the `error` state.
+3. The manager injects namespaced `PluginSettings` and the shared
+    `ServiceRegistry`, calls `register_widgets()`, then calls `on_load()`.
+4. On disable, reload, or application shutdown it calls `on_unload()` and
+    removes only widget types that the plugin registered.
+
+All plugin failures are contained by the manager and exposed in the Plugins
+settings tab. That tab offers activate, deactivate, reload, and a generated
+settings dialog. A plugin can declare `settings_schema` using
+`PluginSettingDef` entries with `text`, `number`, `bool`, or `select` fields;
+values are stored under `plugin.<plugin-id>.*` in SQLite.
+
+A plugin may also override `create_app_view(parent=None)` to return a
+full-screen widget; `app/ui/app_launcher.py` lists every plugin that overrides
+it and `MainWindow._open_plugin_app` opens the view inside the existing Qt
+stack (never as an external process).
+
+### 5.6 Plugin Catalog (Phase 3+, real integrations)
+
+| Plugin (`plugins/<id>/`) | Real integration | Widgets | Notes |
+|---|---|---|---|
+| `system_monitor` | `/proc`, `/sys`, `os.statvfs` (no deps) | CPU, RAM, Storage, Network, SystemService (systemd) | Service start/stop/restart require confirmation + `sudo -n systemctl` |
+| `flashforge` | Raw TCP client, port 8899, `~M601 S1` control handshake ([protocol ref](https://github.com/Parallel-7/flashforge-api-docs/wiki/TCP-Protocol)) | PrinterStatusWidget, PrintControlWidget | Background `QThread`; pause/resume/cancel confirmed for cancel |
+| `pihole` | Pi-hole v6 REST API (`/api/...`, `sid` session header) | PiHoleStatsWidget, PiHoleControlWidget | Timed blocking disable (5/30/60 min or permanent) |
+| `network` | `ping` subprocess, bounded timeout | NetworkDeviceWidget | Per-device host/IP configured via PROPERTY_SCHEMA |
+| `docker` | `docker` CLI via `subprocess` (local socket) | DockerWidget | Container list + Start/Stop/Restart, confirmation for Stop/Restart |
+| `browser` | Optional `QtWebEngineWidgets` | none (provides `create_app_view`) | Back/Forward/Reload/Home/Bookmarks/Fullscreen; safe no-WebEngine fallback |
+
+All plugin API clients run their network/subprocess calls in a `QThread` and
+emit a Qt signal back to the widget - never a blocking call on the UI thread.
+
+### 5.7 Animation Engine (`app/core/animations.py`)
+
+`AnimationEngine` (singleton `animation_engine`) plays short, one-shot Qt
+property animations - `fade`, `slide`, `pulse`, `bounce`, `shake`, `glow` (no
+`rotate`/`breathing`/scale-as-separate-type yet) - triggered by `BaseWidget` on
+widget entry and on bound-entity state changes, never as an infinite loop.
+Every widget gets three new COMMON_SCHEMA properties: `entrance_animation`,
+`state_animation`, `animation_speed`.
+
+### 5.8 Conditional Styling (`app/core/conditions.py`)
+
+`matches_condition(value, operator, expected)` implements the safe operator
+set (`equals`, `not_equals`, `greater_than`, `less_than`, `contains`, `online`,
+`offline`, `true`, `false`) shared by:
+- **Visibility** (`visible_entity`/`visible_operator`/`visible_state`/`visible_invert`,
+  extends the original equals-only Conditional Visibility with all operators)
+- **Styling** (`style_enabled`/`style_entity`/`style_operator`/`style_value`/
+  `style_bg_color`/`style_text_color` COMMON_SCHEMA properties) - overrides
+  `bg_color`/`text_color` via `BaseWidget.apply_conditional_style()` without
+  mutating the stored base config.
+
+### 5.9 Safe Expression System (`app/core/expressions.py`)
+
+Whitelist-only template evaluator for the Custom Widget Builder -
+`render_template("{{ state | round(1) }}", {"state": 23.44})`. Only `Name`,
+`Constant`, `BinOp` (`+ - * /`), `UnaryOp` AST nodes are evaluated; everything
+else (calls, attribute access, comprehensions, imports) raises
+`ExpressionError` instead of running - there is no `eval`/`exec` of
+user-supplied Python. Filters: `round`, `upper`, `lower`, `int`, `float`, `abs`.
+
+### 5.10 Custom Widget Builder (`app/widgets/custom_widget.py` + `app/ui/custom_widget_builder.py`)
+
+`CustomWidget` (`type_name="custom_widget"`) renders `config["elements"]` -
+a list of `{type, x, y, w, h, color, template, entity_id}` dicts - as
+absolutely-positioned child widgets (`text`, `icon`, `sensor_value`,
+`progress_bar`, `button`, all bound via the safe expression templates above).
+Its only `PROPERTY_SCHEMA` entry is an `"action"`-type property that opens
+`open_custom_widget_builder()`, a dialog to add/edit/remove elements; saving
+calls the existing `PropertiesPanel._update("elements", ...)` path, so
+persistence reuses the standard widget-config flow (no parallel storage).
+
+### 5.11 Workflow Engine (`app/core/workflows.py`, list-based Phase 5 foundation)
+
+Workflows are stored in the `workflows` SQLite table (`Database.save_workflow`
+/ `list_workflows` / `set_workflow_enabled`). `WorkflowEngine` (registered in
+`ServiceRegistry` as `"workflow_engine"`) listens to `StateManager.entity_updated`
+and, when `trigger_entity`/`trigger_state` matches, runs `steps` sequentially:
+`{"kind": "action", "domain", "service", "entity_id", "data"}` calls
+`state_manager.call_service(...)`; `{"kind": "wait", "seconds"}` delays via
+`QTimer.singleShot`. A broken step is caught and logged, never raised. No
+visual editor yet - a node-based UI can be layered on this storage/engine
+without changes.
+
+### 5.6 Theme System
 
 Themes are dictionaries of design tokens that get converted to Qt stylesheets:
 
@@ -283,7 +403,7 @@ BUILT_IN_THEMES = [
 
 **build_stylesheet(theme)** generates a complete Qt stylesheet from the token dict, applying to QMainWindow, QWidget, QLabel, QPushButton, QLineEdit, QComboBox, QSlider, QToolTip, and nav-specific selectors.
 
-### 5.6 Editor System
+### 5.7 Editor System
 
 The editor is a full visual layout tool:
 
@@ -295,7 +415,7 @@ The editor is a full visual layout tool:
 - **Save/Cancel**: Save commits changes to SQLite, Cancel reverts to pre-edit snapshot
 - **Page management**: Add/delete pages (with confirmation, last page protected)
 
-### 5.7 Standby State Machine
+### 5.12 Standby State Machine
 
 ```
 NORMAL → (inactivity timeout) → DIMMED → (more inactivity) → OFF
@@ -303,12 +423,17 @@ NORMAL → (inactivity timeout) → DIMMED → (more inactivity) → OFF
    └────────────── any user interaction ─────────────────────┘
 ```
 
-- **DIMMED**: Semi-transparent clock overlay (configurable opacity, default 60%)
+- **DIMMED**: Semi-transparent overlay (configurable opacity, default 60%)
 - **OFF**: Full black overlay + backlight off via sysfs (`/sys/class/backlight/*/brightness`)
 - **Wake**: Any touch/click/mouse move/keyboard event
 - **Configurable**: dim_minutes, off_minutes, dim_opacity, enable/disable
+- **Screensaver mode** (`screensaver_mode` setting, Settings → Standby & Display):
+  `"digital_clock"` (default, unchanged) or `"system_info"` (live CPU/RAM % +
+  temperature read directly, refreshed every 5s while shown)
+- **Background image** (`screensaver_background_path` setting): optional static
+  image shown behind the clock/info text; cleared = plain dim/black as before
 
-### 5.8 Navigation
+### 5.13 Navigation
 
 Two modes:
 - **Bottom bar** (default): Horizontal button bar at screen bottom
@@ -316,12 +441,23 @@ Two modes:
 
 Pages can be reordered in the editor. Each page has: `name`, `icon`, `order_index`, `bg_image_path`, `bg_fit`.
 
-### 5.9 Conditional Visibility
+### 5.14 Conditional Visibility
 
-Every widget can be conditionally shown/hidden based on an HA entity's state:
+Every widget can be conditionally shown/hidden based on an HA entity's state,
+now using the same operator set as Conditional Styling (5.8):
 - `visible_entity`: entity_id to check
-- `visible_state`: expected state string (e.g., "on", "home", "motion")
-- `visible_invert`: if true, show when state does NOT match
+- `visible_operator`: `equals` (default) | `not_equals` | `greater_than` | ...
+- `visible_state`: expected value
+- `visible_invert`: if true, show when the condition does NOT match
+
+### 5.15 Extended Backup (`Database.export_config`/`import_config`)
+
+Export now includes `templates` and `workflows` alongside `pages`/`widgets`/
+`themes`/`settings`. Any settings key matching `token`, `sid`, `password`,
+`secret`, `api_key`/`apikey` (case-insensitive) is excluded unless
+`include_secrets=True` is explicitly requested - this covers `ha_token` as
+well as plugin secrets like `plugin.pihole.sid` automatically, with no
+per-plugin allowlist to maintain.
 
 ---
 
@@ -361,6 +497,24 @@ CREATE TABLE settings (
     key TEXT PRIMARY KEY,
     value TEXT  -- JSON-encoded value
 );
+
+CREATE TABLE templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL DEFAULT 'widget',  -- 'widget' | 'page'
+    type TEXT NOT NULL DEFAULT '',
+    config TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL DEFAULT 0
+);
+
+CREATE TABLE workflows (  -- Phase 5, see 5.11 Workflow Engine
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    trigger_entity TEXT NOT NULL DEFAULT '',
+    trigger_state TEXT NOT NULL DEFAULT '',
+    steps TEXT NOT NULL DEFAULT '[]',  -- JSON list of {kind: action|wait, ...}
+    enabled INTEGER NOT NULL DEFAULT 1
+);
 ```
 
 **Key design choice**: Widget and theme configs are stored as JSON blobs, not normalized tables. This means new widget properties or theme tokens never require database migrations.
@@ -388,6 +542,9 @@ CREATE TABLE settings (
 | `standby_off_minutes` | int | `5` | Minutes before display off |
 | `standby_dim_opacity` | int | `60` | Dim overlay opacity (0-100) |
 | `screensaver_timeout` | int | `10` | Legacy screensaver timeout (min) |
+| `screensaver_mode` | string | `"digital_clock"` | `"digital_clock"` or `"system_info"` |
+| `screensaver_background_path` | string | `""` | Optional static background image path |
+| `plugin.<id>.<key>` | any | - | Namespaced per-plugin settings (see `PluginSettings`) |
 
 ---
 

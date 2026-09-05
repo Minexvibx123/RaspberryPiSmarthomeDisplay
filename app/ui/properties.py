@@ -238,7 +238,17 @@ class PropertiesPanel(QWidget):
             btn.clicked.connect(pick)
             return btn
 
+        if prop.type == "action":
+            btn = QPushButton(prop.label)
+            btn.clicked.connect(lambda _checked=False: self._run_action(prop, instance))
+            return btn
+
         return QLabel(str(value))
+
+    def _run_action(self, prop, instance: BaseWidget) -> None:
+        if prop.action == "custom_widget_elements":
+            from app.ui.custom_widget_builder import open_custom_widget_builder
+            open_custom_widget_builder(self, instance)
 
     def _update(self, key: str, value) -> None:
         if not self.widget_instance or not self.db:

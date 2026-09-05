@@ -12,8 +12,9 @@ from typing import Optional
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPushButton,
-    QSplitter, QVBoxLayout, QWidget,
+    QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QInputDialog, QLabel,
+    QListWidget, QListWidgetItem, QMessageBox, QPushButton, QSplitter,
+    QVBoxLayout, QWidget,
 )
 
 from app.ui.dashboard import DashboardCanvas
@@ -66,12 +67,21 @@ class EditorScreen(QWidget):
         self.copy_btn.clicked.connect(self._copy_selected)
         self.paste_btn = QPushButton("Einfügen")
         self.paste_btn.clicked.connect(self._paste)
+        self.save_template_btn = QPushButton("Als Vorlage speichern")
+        self.save_template_btn.clicked.connect(self._save_widget_template)
+        self.insert_template_btn = QPushButton("Vorlage einfügen")
+        self.insert_template_btn.clicked.connect(self._insert_widget_template)
         self.cancel_btn = QPushButton("Abbrechen")
         self.cancel_btn.clicked.connect(self._cancel)
         self.save_btn = QPushButton("Speichern")
         self.save_btn.setStyleSheet("background-color: #33D9B2; color: #08281F; font-weight: 700;")
         self.save_btn.clicked.connect(self._save)
-        for b in (self.grid_btn, self.grid_size_combo, self.undo_btn, self.redo_btn, self.add_btn, self.add_page_btn, self.copy_btn, self.paste_btn, self.cancel_btn, self.save_btn):
+        for b in (
+            self.grid_btn, self.grid_size_combo, self.undo_btn, self.redo_btn,
+            self.add_btn, self.add_page_btn, self.copy_btn, self.paste_btn,
+            self.save_template_btn, self.insert_template_btn, self.cancel_btn,
+            self.save_btn,
+        ):
             toolbar.addWidget(b)
         root.addLayout(toolbar)
 
@@ -246,6 +256,56 @@ class EditorScreen(QWidget):
             )
         if self.current_page_id is not None:
             self.canvas.load_page(self.current_page_id)
+
+    def _save_widget_template(self) -> None:
+        widget_id = self.canvas.selected_widget_id
+        widget = self.db.get_widget(widget_id) if widget_id is not None else None
+        if widget is None:
+            QMessageBox.information(self, "Widget-Vorlage", "Bitte zuerst ein Widget auswählen.")
+            return
+        name, accepted = QInputDialog.getText(self, "Widget-Vorlage speichern", "Name der Vorlage:")
+        if accepted and name.strip():
+            self.db.save_template(name.strip(), "widget", copy.deepcopy(widget.config), widget.type)
+
+    def _insert_widget_template(self) -> None:
+        templates = self.db.list_templates("widget")
+        if not templates or self.current_page_id is None:
+            QMessageBox.information(self, "Widget-Vorlage", "Keine Widget-Vorlagen verfügbar.")
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Widget-Vorlage auswählen")
+        layout = QVBoxLayout(dialog)
+        template_list = QListWidget()
+        for template in templates:
+            item = QListWidgetItem(template.name)
+            item.setData(0x0100, template.id)
+            template_list.addItem(item)
+        template_list.setCurrentRow(0)
+        layout.addWidget(template_list)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Ok)
+        buttons.rejected.connect(dialog.reject)
+        buttons.accepted.connect(dialog.accept)
+        layout.addWidget(buttons)
+        if not dialog.exec() or template_list.currentItem() is None:
+            return
+
+        template_id = template_list.currentItem().data(0x0100)
+        template = self.db.get_template(template_id)
+        if template is None:
+            return
+        from app.widgets.registry import widget_class
+
+        widget_type = widget_class(template.type)
+        config = copy.deepcopy(template.config)
+        if widget_type.requires_entity:
+            picker = EntityPickerDialog(self.state_manager, domain_filter=widget_type.entity_domains, parent=self)
+            if not picker.exec() or not picker.selected_entity_id:
+                return
+            config["entity_id"] = picker.selected_entity_id
+        self._push_undo()
+        width, height = widget_type.default_size
+        self.db.create_widget(self.current_page_id, template.type, 80, 80, width, height, config)
+        self.canvas.load_page(self.current_page_id)
 
     # -- undo / redo (whole-page snapshots) -------------------------------- #
     def _page_snapshot(self) -> list[dict]:
