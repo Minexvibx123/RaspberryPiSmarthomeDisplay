@@ -10,17 +10,22 @@ class FlashforgeClient:
         self.host, self.port, self.timeout = host, port, timeout
 
     def command(self, command: str) -> str:
-        with socket.create_connection((self.host, self.port), self.timeout) as connection:
-            connection.settimeout(self.timeout)
-            self._send(connection, "M601 S1")
-            control = self._read(connection)
-            if "Control Success" not in control:
-                raise ConnectionError(f"Printer control unavailable: {control.strip()}")
-            try:
-                self._send(connection, command)
-                return self._read(connection)
-            finally:
-                self._send(connection, "M602")
+        responses = self._run([command])
+        return responses[-1] if responses else ""
+
+    def move(self, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0, feed_rate: float = 1500.0) -> str:
+        axes = []
+        if dx: axes.append(f"X{dx:g}")
+        if dy: axes.append(f"Y{dy:g}")
+        if dz: axes.append(f"Z{dz:g}")
+        if not axes:
+            return ""
+        self._run(["G91", f"G1 {' '.join(axes)} F{feed_rate:g}", "G90"])
+        return "ok"
+
+    def home(self) -> str:
+        self._run(["G28"])
+        return "ok"
 
     def status(self) -> dict[str, object]:
         machine = self.command("M119")
@@ -35,6 +40,23 @@ class FlashforgeClient:
     def pause(self) -> str: return self.command("M25")
     def resume(self) -> str: return self.command("M24")
     def cancel(self) -> str: return self.command("M26")
+
+    def _run(self, commands: list[str]) -> list[str]:
+        """Acquire printer control once, send a command batch, release control."""
+        responses = []
+        with socket.create_connection((self.host, self.port), self.timeout) as connection:
+            connection.settimeout(self.timeout)
+            self._send(connection, "M601 S1")
+            control = self._read(connection)
+            if "Control Success" not in control:
+                raise ConnectionError(f"Printer control unavailable: {control.strip()}")
+            try:
+                for command in commands:
+                    self._send(connection, command)
+                    responses.append(self._read(connection))
+            finally:
+                self._send(connection, "M602")
+        return responses
 
     @staticmethod
     def _send(connection: socket.socket, command: str) -> None:

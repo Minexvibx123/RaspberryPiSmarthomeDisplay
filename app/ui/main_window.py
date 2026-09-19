@@ -13,8 +13,8 @@ from pathlib import Path
 from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
-    QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox,
-    QPushButton, QStackedWidget, QVBoxLayout, QWidget,
+    QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton,
+    QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from app.core.database import Database
@@ -376,7 +376,10 @@ class MainWindow(QMainWindow):
             self.stack.addWidget(w)
         self.settings_wrap = settings_wrap
         self.app_launcher = AppLauncher(self.plugin_manager, self._open_plugin_app)
+        self.app_launcher.exit_requested.connect(lambda: self.stack.setCurrentWidget(self.dashboard_view))
         self.stack.addWidget(self.app_launcher)
+        for i in range(self.stack.count()):
+            self.stack.widget(i).setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
 
         self.dashboard_view.load_page(first_page_id)
         self.stack.setCurrentWidget(self.dashboard_view)
@@ -407,9 +410,24 @@ class MainWindow(QMainWindow):
 
     def _open_plugin_app(self, plugin_id: str) -> None:
         view = self.plugin_manager.get_instance(plugin_id).create_app_view(self)
-        if view is not None:
-            self.stack.addWidget(view)
-            self.stack.setCurrentWidget(view)
+        if view is None:
+            return
+        index = getattr(self, "_plugin_app_index", None)
+        if index is not None:
+            old = self.stack.widget(index)
+            self.stack.removeWidget(old)
+            old.deleteLater()
+            self._plugin_app_index = None
+        app_wrap = QWidget()
+        app_wrap.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        wrap_layout = QVBoxLayout(app_wrap)
+        back_btn = QPushButton("\u2190 Zurück zu Apps")
+        back_btn.clicked.connect(lambda: self.stack.setCurrentWidget(self.app_launcher))
+        wrap_layout.addWidget(back_btn)
+        wrap_layout.addWidget(view, 1)
+        self.stack.addWidget(app_wrap)
+        self._plugin_app_index = self.stack.count() - 1
+        self.stack.setCurrentWidget(app_wrap)
 
     def _navigate_to_page_name(self, page_name: str) -> None:
         for page in self.db.list_pages():

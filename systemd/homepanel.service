@@ -21,7 +21,7 @@ Environment=QT_QPA_PLATFORM=wayland
 Environment=PYTHONUNBUFFERED=1
 # Landscape-Rotation: Panel ist portrait-native (720x1280).
 # Werte: normal / 90 / 180 / 270 – Touch dreht wlroots automatisch mit.
-ExecStartPost=/bin/sh -c 'i=0; until wlr-randr --output DSI-2 --transform 90 || [ $i -ge 20 ]; do i=$((i+1)); sleep 0.5; done'
+ExecStartPost=/bin/sh -c 'i=0; until wlr-randr --output DSI-2 --transform normal || [ $i -ge 20 ]; do i=$((i+1)); sleep 0.5; done'
 WorkingDirectory=/home/pi/homepanel
 ExecStart=/usr/bin/cage -d -- /home/pi/homepanel/.venv/bin/python -m app.main
 Restart=always

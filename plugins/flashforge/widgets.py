@@ -1,5 +1,5 @@
-from PySide6.QtCore import QThread, QTimer, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QPushButton
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
 from app.widgets.base import BaseWidget
 
@@ -17,6 +17,22 @@ class _StatusFetch(QThread):
     def run(self):
         try:
             self.ready.emit(FlashforgeClient(self.host, self.port).status())
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class _CommandThread(QThread):
+    ready = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, host, port, fn, parent=None):
+        super().__init__(parent)
+        self.host, self.port = host, port
+        self.fn = fn
+
+    def run(self):
+        try:
+            self.ready.emit(self.fn(FlashforgeClient(self.host, self.port)))
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -42,14 +58,17 @@ class PrinterStatusWidget(BaseWidget):
         self.timer.start()
 
     def refresh_from_state(self):
-        if getattr(self, "fetch", None) and self.fetch.isRunning():
-            return
+        if getattr(self, "fetch", None) is not None:
+            if self.fetch.isRunning():
+                return
+            previous = self.fetch
+            self.fetch = None
+            previous.deleteLater()
         host = self.config.get("printer_host", "192.168.178.112")
         port = int(self.config.get("printer_port", 8899))
         self.fetch = _StatusFetch(host, port, self)
         self.fetch.ready.connect(self._show_status)
         self.fetch.failed.connect(lambda error: self.status.setText("Offline"))
-        self.fetch.finished.connect(self.fetch.deleteLater)
         self.fetch.start()
 
     def _show_status(self, data):
@@ -68,8 +87,10 @@ class PrintControlWidget(BaseWidget):
 
     def build_ui(self):
         row = QHBoxLayout()
+        row.setSpacing(10)
         for label, command in (("Pause", "M25"), ("Fortsetzen", "M24"), ("Abbrechen", "M26")):
             button = QPushButton(label)
+            button.setMinimumHeight(52)
             button.clicked.connect(lambda _checked=False, cmd=command: self._run(cmd))
             row.addWidget(button)
         self.content_layout.addLayout(row)
@@ -80,6 +101,112 @@ class PrintControlWidget(BaseWidget):
     def _run(self, command):
         if command == "M26" and QMessageBox.question(self, "Druck abbrechen", "Druck wirklich abbrechen?") != QMessageBox.Yes:
             return
-        thread = _StatusFetch(self.config.get("printer_host", "192.168.178.112"), int(self.config.get("printer_port", 8899)), self)
-        thread.run = lambda: FlashforgeClient(thread.host, thread.port).command(command)
+        thread = _CommandThread(self.config.get("printer_host", "192.168.178.112"), int(self.config.get("printer_port", 8899)), lambda client: client.command(command), self)
+        thread.failed.connect(lambda error: self._show_error(error))
         thread.start()
+
+    def _show_error(self, error):
+        QMessageBox.critical(self, "Flashforge", f"Befehl fehlgeschlagen:\n{error}")
+
+
+class PrintJogWidget(QWidget):
+    """Touch-first X/Y/Z jog control for the Flashforge app view."""
+
+    STEPS = (1, 10, 50)
+
+    def __init__(self, config, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.step = 10
+        self._step_buttons = []
+
+        self.setObjectName("jogPanel")
+        self.setStyleSheet(
+            "QWidget#jogPanel { background-color: rgba(23,24,32,200); border-radius: 16px;"
+            " border: 1px solid rgba(255,255,255,30); }"
+            "QWidget#jogPanel QLabel { background: transparent; }"
+            "QWidget#jogPanel QPushButton { background-color: #2A2C3A; color: #FFFFFF;"
+            " border: 1px solid rgba(255,255,255,40); border-radius: 10px; font-size: 18px; }"
+            "QWidget#jogPanel QPushButton:pressed { background-color: #4C8DFF; }"
+            "QWidget#jogPanel QPushButton:checked { background-color: #4C8DFF; color: #FFFFFF; }"
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+
+        header = QHBoxLayout()
+        title = QLabel("Achsensteuerung")
+        title.setStyleSheet("font-size: 18px; font-weight: 700; color: #FFFFFF;")
+        header.addWidget(title)
+        header.addStretch(1)
+        for mm in self.STEPS:
+            btn = QPushButton(f"{mm} mm")
+            btn.setCheckable(True)
+            btn.setMinimumHeight(36)
+            btn.setFixedWidth(58)
+            btn.setChecked(mm == self.step)
+            btn.clicked.connect(lambda _checked=False, s=mm: self._set_step(s))
+            header.addWidget(btn)
+            self._step_buttons.append(btn)
+        layout.addLayout(header)
+
+        grid = QGridLayout()
+        grid.setSpacing(8)
+        for column, axis in enumerate(("X", "Y", "Z")):
+            axis_label = QLabel(axis)
+            axis_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            axis_label.setStyleSheet("font-size: 22px; font-weight: 800; color: #4C8DFF;")
+            grid.addWidget(axis_label, 0, column)
+            minus = QPushButton("\u2212")
+            minus.setMinimumHeight(52)
+            minus.clicked.connect(lambda _checked=False, a=axis: self._start_jog(a, -1))
+            grid.addWidget(minus, 1, column)
+            plus = QPushButton("\uff0b")
+            plus.setMinimumHeight(52)
+            plus.clicked.connect(lambda _checked=False, a=axis: self._start_jog(a, 1))
+            grid.addWidget(plus, 2, column)
+        layout.addLayout(grid, 1)
+
+        home_btn = QPushButton("Home (alle Achsen)")
+        home_btn.setMinimumHeight(48)
+        home_btn.clicked.connect(self._home)
+        layout.addWidget(home_btn)
+
+        self.feedback = QLabel("")
+        self.feedback.setStyleSheet("font-size: 13px; color: #9AA0B4;")
+        self.feedback.setWordWrap(True)
+        layout.addWidget(self.feedback)
+
+        self._feedback_timer = QTimer(self)
+        self._feedback_timer.setSingleShot(True)
+        self._feedback_timer.timeout.connect(lambda: self.feedback.setText(""))
+
+    def _host_port(self):
+        return self.config.get("printer_host", "192.168.178.112"), int(self.config.get("printer_port", 8899))
+
+    def _set_step(self, mm):
+        self.step = mm
+        for btn, value in zip(self._step_buttons, self.STEPS):
+            btn.setChecked(value == mm)
+
+    def _start_jog(self, axis, direction):
+        delta = direction * self.step
+        self._flash(f"{'X' if axis == 'X' else ''}{'Y' if axis == 'Y' else ''}{'Z' if axis == 'Z' else ''}{('+' if delta >= 0 else '')}{delta} mm")
+        kwargs = {"dx": 0.0, "dy": 0.0, "dz": 0.0}
+        if axis == "X": kwargs["dx"] = float(delta)
+        elif axis == "Y": kwargs["dy"] = float(delta)
+        else: kwargs["dz"] = float(delta)
+        thread = _CommandThread(*self._host_port(), lambda client: client.move(**kwargs), self)
+        thread.failed.connect(lambda error: self._flash(f"Fehler: {error}"))
+        thread.start()
+
+    def _home(self):
+        self._flash("Home läuft...")
+        thread = _CommandThread(*self._host_port(), lambda client: client.home(), self)
+        thread.failed.connect(lambda error: self._flash(f"Fehler: {error}"))
+        thread.start()
+
+    def _flash(self, message):
+        self.feedback.setText(message)
+        self._feedback_timer.start(3000)

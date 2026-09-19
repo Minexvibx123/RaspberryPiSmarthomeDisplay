@@ -2,7 +2,7 @@ from app.plugins.api import Plugin as PluginBase, PluginSettingDef
 from app.widgets.registry import register_widget_class
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from .widgets import PrintControlWidget, PrinterStatusWidget
+from .widgets import PrintControlWidget, PrintJogWidget, PrinterStatusWidget
 
 
 class Plugin(PluginBase):
@@ -18,6 +18,8 @@ class Plugin(PluginBase):
         title = QLabel("Flashforge Adventurer 5M Pro")
         title.setStyleSheet("font-size: 22px; font-weight: 800;")
         layout.addWidget(title)
-        layout.addWidget(PrinterStatusWidget(0, {"printer_host": self.settings.get("host", "192.168.178.112"), "printer_port": self.settings.get("port", 8899)}, parent=view))
-        layout.addStretch()
+        config = {"printer_host": self.settings.get("host", "192.168.178.112"), "printer_port": self.settings.get("port", 8899)}
+        layout.addWidget(PrinterStatusWidget(0, config, parent=view))
+        layout.addWidget(PrintControlWidget(0, config, parent=view))
+        layout.addWidget(PrintJogWidget(config, parent=view), 1)
         return view
