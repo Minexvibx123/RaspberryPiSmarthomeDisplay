@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import glob
 import logging
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QTimer, Qt, Signal
@@ -234,6 +235,11 @@ class _StandbyOverlay(QWidget):
 def _backlight_set_state(off: bool, saved_state: dict) -> None:
     """Best-effort backlight control via sysfs.  *saved_state* is mutated
     to remember the original brightness for later restoration."""
+    # Nur die Display-Instanz darf das echte Backlight steuern. Die
+    # Browser-View (--windowed) wuerde sonst mit ihrem eigenen gespeicherten
+    # Zustand (oft 0) den Wert der Display-Instanz nach deren Wake ueberschreiben.
+    if "--windowed" in sys.argv:
+        return
     try:
         for pattern in _BACKLIGHT_BL_POWER_GLOBS:
             for path in glob.glob(pattern):
@@ -269,6 +275,15 @@ def _backlight_set_state(off: bool, saved_state: dict) -> None:
                     if restored is not None:
                         try:
                             Path(path).write_bytes(restored)
+                        except OSError:
+                            pass
+                    else:
+                        # Kein gespeicherter Wert (z. B. App-Neustart waehrend
+                        # OFF): auf max_brightness zurueck, sonst bleibt das
+                        # Display nach dem Wake dauerhaft schwarz.
+                        try:
+                            maximum = Path(path).with_name("max_brightness").read_bytes().strip() or b"31"
+                            Path(path).write_bytes(maximum)
                         except OSError:
                             pass
     except Exception:
