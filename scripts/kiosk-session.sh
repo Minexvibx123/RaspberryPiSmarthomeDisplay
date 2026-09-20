@@ -20,7 +20,9 @@ log() { echo "[kiosk-session] $(date '+%H:%M:%S') $*"; }
 log "starte Kiosk-Session (cage am DSI-Display)"
 
 while true; do
-    /usr/bin/cage -d -- "$APP_DIR/.venv/bin/python" -m app.main &
+    # Gepatchtes cage (HomePanel-Fix: Touch->Output-Mapping im Kiosk,
+    # /usr/local/bin hat Vorrang vor dem Apt-Paket /usr/bin)
+    /usr/local/bin/cage -d -- "$APP_DIR/.venv/bin/python" -m app.main &
     CAGE_PID=$!
 
     # Auf den Wayland-Socket warten und Landscape-Rotation (270°) setzen.
