@@ -34,6 +34,21 @@ while true; do
         [ $i -ge 20 ] && { log "Rotation konnte nicht gesetzt werden"; break; }
     done
 
+    # DSI-Panel nach DRM-Session-Neustart re-initialisieren: Der Compositor
+    # rendert zwar, aber das Panel bleibt nach einem Compositor-Neustart oft
+    # schwarz. Ein Output-off/on zwingt das Panel zur erneuten Initialisierung
+    # (bewaehrt: ohne Reboot erfolgreich getestet).
+    if XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" WAYLAND_DISPLAY=wayland-0 \
+        wlr-randr --output DSI-1 --off 2>/dev/null; then
+        log "Panel-Re-Init: DSI-1 off/on"
+        sleep 1
+        XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" WAYLAND_DISPLAY=wayland-0 \
+            wlr-randr --output DSI-1 --on 2>/dev/null
+        sleep 1
+        XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" WAYLAND_DISPLAY=wayland-0 \
+            wlr-randr --output DSI-1 --transform 270 2>/dev/null || true
+    fi
+
     # Blockieren, solange cage laeuft
     wait "$CAGE_PID"
     RC=$?
