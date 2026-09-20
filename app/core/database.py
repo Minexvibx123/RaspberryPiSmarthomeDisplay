@@ -134,6 +134,10 @@ class Database:
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
+        # Zwei App-Instanzen (Display + Browser-View) lesen/schreiben dieselbe
+        # DB – kurze Sperrzeiten beim gleichzeitigen Zugriff abwarten statt
+        # sofort mit "database is locked" zu scheitern.
+        self._conn.execute("PRAGMA busy_timeout = 5000")
         self._conn.executescript(SCHEMA)
         self._conn.commit()
         self._migrate_pages()
@@ -441,6 +445,10 @@ class Database:
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
+        # Zwei App-Instanzen (Display + Browser-View) lesen/schreiben dieselbe
+        # DB – kurze Sperrzeiten beim gleichzeitigen Zugriff abwarten statt
+        # sofort mit "database is locked" zu scheitern.
+        self._conn.execute("PRAGMA busy_timeout = 5000")
 
     _SECRET_KEY_MARKERS = ("token", "sid", "password", "secret", "api_key", "apikey")
 

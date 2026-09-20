@@ -7,11 +7,12 @@ When ``standby_enabled`` is *False* the legacy screensaver behaviour
 from __future__ import annotations
 
 import glob
+import json
 import logging
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QFileSystemWatcher, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QPixmap, QTouchEvent
 from PySide6.QtWidgets import (
     QApplication, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton,
@@ -291,6 +292,15 @@ def _backlight_set_state(off: bool, saved_state: dict) -> None:
             _log.warning("Backlight sysfs control unavailable, relying on black overlay", exc_info=True)
             saved_state["_warned"] = True
 
+
+def _theme_json(theme: dict) -> str:
+    """Kanonischer Fingerprint des aktiven Themes (vergleicht ohne Anwendung)."""
+    try:
+        return json.dumps(theme, sort_keys=True, default=str)
+    except Exception:
+        return ""
+
+
 class MainWindow(QMainWindow):
     def __init__(self, app):
         super().__init__()
@@ -305,6 +315,19 @@ class MainWindow(QMainWindow):
         self.auto_check_timer.timeout.connect(lambda: self.theme_manager.check_auto_mode(self.app, self.db))
         self.auto_check_timer.start(300000)
         self.theme_manager.check_auto_mode(self.app, self.db)
+
+        # Cross-Instanz-Sync: Display- und Browser-View (VNC) teilen dieselbe
+        # SQLite-DB. Da im Normalbetrieb nie in die DB geschrieben wird,
+        # signalisiert jede DB-Aenderung eine Konfig-Aenderung der jeweils
+        # anderen Instanz -> aktuellen Stand uebernehmen (Seiten, Theme,
+        # Standby-Settings).
+        self._db_watcher = QFileSystemWatcher([str(self.db.path)], self)
+        self._db_watcher.fileChanged.connect(self._on_db_file_changed)
+        self._db_sync_timer = QTimer(self)
+        self._db_sync_timer.setSingleShot(True)
+        self._db_sync_timer.setInterval(400)
+        self._db_sync_timer.timeout.connect(self._sync_from_db)
+        self._applied_theme_json = _theme_json(self.theme_manager.active())
 
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
@@ -429,6 +452,29 @@ class MainWindow(QMainWindow):
         if current_page is not None:
             self.dashboard_view.load_page(current_page)
         self.stack.setCurrentWidget(self.dashboard_view)
+
+    def _on_db_file_changed(self, path: str) -> None:
+        """DB-Writes der anderen Instanz (Editor/Settings) gebuendelt verarbeiten."""
+        self._db_sync_timer.start()
+
+    def _sync_from_db(self) -> None:
+        """Live-Uebernahme der Konfig der anderen Instanz (Display <-> VNC)."""
+        # Im Editor verwaltet diese Instanz ihren Canvas selbst -> keine
+        # Rueckkopplung (weder auf eigene noch auf fremde Schreibvorgaenge).
+        if self.stack.currentWidget() is self.editor_screen:
+            return
+        _log.info("Cross-Instanz-Sync: DB-Aenderung erkannt, Ansicht wird aktualisiert")
+        theme_json = _theme_json(self.theme_manager.active())
+        if theme_json and theme_json != self._applied_theme_json:
+            self.theme_manager.apply(self.app, self.theme_manager.active())
+            self._applied_theme_json = theme_json
+        self._reset_standby_timer()
+        page_ids = [p.id for p in self.db.list_pages()]
+        current = self.dashboard_view.canvas.current_page_id
+        if current not in page_ids:
+            current = page_ids[0] if page_ids else None
+        if current is not None:
+            self.dashboard_view.load_page(current)
 
     def _show_settings(self) -> None:
         self.stack.setCurrentWidget(self.settings_wrap)
