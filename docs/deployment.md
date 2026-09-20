@@ -153,5 +153,7 @@ Fehlerbilder:
 | „Unable to open DRM device“ | Seat-/Gruppen-Problem (`video`, `render`, `input`) |
 | SIGABRT-Crashloop mit `eglfs` | eglfs auf DSI2 nicht nutzbar → cage verwenden |
 
-Ausführliche Schritt-für-Schritt-Anleitung für das DSI2/cage-Setup: siehe
-[`SETUP-STATUS.md`](../SETUP-STATUS.md) im Projektwurzelverzeichnis.
+Ausführliche Schritt-für-Schritt-Anleitung für das DSI2/cage-Setup stand in
+den Hardware-Bringup-Notizen (`SETUP-STATUS.md`, bis zur Bereinigung im
+Projektwurzelverzeichnis). Wichtige Fallstricke sind in der Fehlertabelle oben
+zusammengefasst.

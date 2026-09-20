@@ -29,11 +29,9 @@ installieren und pflegen.
 
 ## Weitere Wissensbasis
 
-- [`AI-CONTEXT.md`](../AI-CONTEXT.md) – Technische Referenz für KI-Assistenten
-  (sehr detailliert, enthält auch Datenbankschema und Settings-Liste).
-- [`SETUP-STATUS.md`](../SETUP-STATUS.md) – Hardware-Troubleshooting-Playbook
-  für das Raspberry-Pi-5/DSI2-cage-Setup.
 - [`README.md`](../README.md) – Benutzerorientierte Projektübersicht (Deutsch).
+- Hardware-Bringup-Notizen (Pi-5/DSI2/cage) sind aus dem Repository entfernt;
+  wichtige Fallstricke sind in [`deployment.md`](deployment.md) dokumentiert.
 
 ## Kurzübersicht der Verzeichnisse
 
