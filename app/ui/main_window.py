@@ -334,6 +334,12 @@ class MainWindow(QMainWindow):
 
         self._standby_state = "NORMAL"
         self._saved_backlight: dict = {}
+        # Backlight beim Start IMMER wieder an (max_brightness): Wenn der
+        # Standby-OFF (Backlight 0) des letzten Laufs noch aktiv war (App-/
+        # Session-Neustart waehrend OFF), bleibt das Panel sonst dauerhaft
+        # schwarz, obwohl die App normal laeuft und rendert (Screenshot via
+        # grim zeigt Inhalt, Display bleibt physikalisch dunkel).
+        _backlight_set_state(False, self._saved_backlight)
         self._overlay = _StandbyOverlay(self, settings=self.settings)
         self._overlay.interacted.connect(self.wake_from_standby)
         self._overlay.hide()
