@@ -10,10 +10,10 @@ import glob
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtCore import QEvent, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QPixmap, QTouchEvent
 from PySide6.QtWidgets import (
-    QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton,
+    QApplication, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton,
     QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
@@ -215,6 +215,12 @@ class _StandbyOverlay(QWidget):
     def mousePressEvent(self, event) -> None:
         self.interacted.emit()
 
+    def touchEvent(self, event: QTouchEvent) -> None:
+        """Touchscreen-Wake: Wayland liefert fuer Touchscreens nur QTouchEvent
+        (keine Maus-Emulation) – ohne Handling bliebe der Standby tot."""
+        self.interacted.emit()
+        super().touchEvent(event)
+
     def mouseReleaseEvent(self, event) -> None:
         self.interacted.emit()
 
@@ -310,6 +316,13 @@ class MainWindow(QMainWindow):
         self._legacy_overlay.interacted.connect(self._wake_legacy)
         self._legacy_overlay.hide()
         self._legacy_active = False
+
+        # App-weiter Event-Filter: Jede Interaktion (inkl. Touch) weckt den
+        # Standby bzw. setzt die Timer zurueck – unabhaengig davon, welches
+        # Widget die Eingabe konsumiert.
+        self._app = self.app or QApplication.instance()
+        if self._app is not None:
+            self._app.installEventFilter(self)
 
         self._reset_standby_timer()
 
@@ -519,6 +532,18 @@ class MainWindow(QMainWindow):
             self._wake_legacy()
         else:
             self._reset_standby_timer()
+
+    def eventFilter(self, obj, event) -> bool:
+        t = event.type()
+        if t in (QEvent.Type.TouchBegin, QEvent.Type.MouseButtonPress,
+                 QEvent.Type.MouseButtonDblClick, QEvent.Type.MouseMove,
+                 QEvent.Type.Wheel, QEvent.Type.KeyPress):
+            self._wake_or_reset()
+        return super().eventFilter(obj, event)
+
+    def touchEvent(self, event: QTouchEvent) -> None:
+        self._wake_or_reset()
+        super().touchEvent(event)
 
     def resizeEvent(self, event) -> None:
         if hasattr(self, "_overlay"):
