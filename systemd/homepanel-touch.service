@@ -1,0 +1,12 @@
+[Unit]
+Description=HomePanel - Ensure Goodix Touchscreen is probed
+After=systemd-modules-load.service local-fs.target
+RequiresMountsFor=/proc /sys
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/home/pi/homepanel/scripts/ensure-touch.sh
+
+[Install]
+WantedBy=multi-user.target

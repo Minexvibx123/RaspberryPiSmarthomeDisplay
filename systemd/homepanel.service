@@ -14,6 +14,10 @@ User=pi
 # cage bringt GPU-Beschleunigung zurück (v3d rendert, DMA-BUF-Scanout über
 # rp1-dsi), saubere Output-Rotation und korrekt mitgedrehte Touch-Koordinaten.
 PAMName=login
+# TTYPath: WICHTIG – nur so erzeugt die PAM-Sitzung einen Eintrag auf dem
+# lokalen Display-Seat (seat0). Ohne aktive Sitzung am TTY verweigert logind
+# den DRM-Zugriff ("Failed to start a DRM session") und cage startet nicht.
+TTYPath=/dev/tty1
 # WAYLAND_DISPLAY darf NICHT vorab gesetzt sein – sonst startet cage im
 # Wayland-Backend ("Could not connect to remote display") statt am DRM-Device.
 # Es wird von cage selbst für die Clients exportiert.
@@ -21,9 +25,10 @@ Environment=QT_QPA_PLATFORM=wayland
 Environment=PYTHONUNBUFFERED=1
 # Landscape-Rotation: Panel ist portrait-native (720x1280).
 # Werte: normal / 90 / 180 / 270 – Touch dreht wlroots automatisch mit.
-ExecStartPost=/bin/sh -c 'i=0; until wlr-randr --output DSI-2 --transform normal || [ $i -ge 20 ]; do i=$((i+1)); sleep 0.5; done'
+# Der DSI-Connector heisst auf dem Pi 5 DSI-1 (nicht DSI-2).
+ExecStartPost=/bin/sh -c 'i=0; until [ -S /run/user/$(id -u)/wayland-0 ] && XDG_RUNTIME_DIR=/run/user/$(id -u) WAYLAND_DISPLAY=wayland-0 wlr-randr --output DSI-1 --transform 270; do i=$((i+1)); sleep 0.5; [ $i -ge 30 ] && break; done'
 WorkingDirectory=/home/pi/homepanel
-ExecStart=/usr/bin/cage -d -- /home/pi/homepanel/.venv/bin/python -m app.main
+ExecStart=/bin/sh -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u); exec /usr/bin/cage -d -- /home/pi/homepanel/.venv/bin/python -m app.main'
 Restart=always
 RestartSec=3
 
