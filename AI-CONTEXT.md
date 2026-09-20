@@ -10,7 +10,7 @@
 
 **Core Value Proposition**: Users can visually design their home dashboard by dragging, dropping, resizing, and configuring widgets directly on the touchscreen — no YAML, no JSON, no code editing required.
 
-**Current State**: The project is functional and running on physical hardware. It has a complete widget system, visual editor, theme system, deployment pipeline, a full Phase 1-5 plugin architecture (animations, conditional styling, safe expressions, custom widget builder, a list-based workflow engine, and extended backup), plus real integrations for Flashforge (including an MJPEG printer camera), Pi-hole, Docker, local network devices, system monitoring, and an optional internal browser. Headless verification scripts in `scripts/verify_*.py` (13 as of this writing) cover plugin lifecycle/error isolation, widgets, conditions, animations, templates, backup, workflows, expressions, and the custom widget builder - run them after any change to the touched area.
+**Current State**: The project is functional and running on physical hardware. It has a complete widget system, visual editor, theme system, deployment pipeline, a full Phase 1-5 plugin architecture (animations, conditional styling, safe expressions, custom widget builder, a list-based workflow engine, and extended backup), plus real integrations for Flashforge (including an MJPEG printer camera), Pi-hole, Docker, local network devices, system monitoring, and an optional internal browser. Headless verification scripts in `scripts/verify/verify_*.py` (13 as of this writing) cover plugin lifecycle/error isolation, widgets, conditions, animations, templates, backup, workflows, expressions, and the custom widget builder - run them after any change to the touched area.
 
 ---
 
@@ -131,10 +131,10 @@ homepanel/
 │   ├── configure_ha.py           # Interactive HA configuration script
 │   ├── install-github.sh         # First-time install directly from GitHub
 │   ├── update-github.sh          # Safe fast-forward update from GitHub
-│   └── verify_*.py               # Headless regression suite (13 scripts) - plugin boot,
-│                                 #   error isolation, conditions, animations, templates,
-│                                 #   docker, system monitor, expressions, workflows,
-│                                 #   backup, custom widget, screensaver, web widget
+│   └── verify/                    # Headless regression suite (13 scripts) - plugin boot,
+│       ├── verify_plugin_boot.py  #   error isolation, conditions, animations, templates,
+│       └── ...                    #   docker, system monitor, expressions, workflows,
+│                                  #   backup, custom widget, screensaver, web widget
 ├── systemd/
 │   └── homepanel.service         # systemd unit file (template with /home/pi placeholders)
 ├── docs/                         # Detailed documentation (architecture, core, ui,

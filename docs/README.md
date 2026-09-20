@@ -24,6 +24,8 @@ installieren und pflegen.
   Kiosk (cage), Rotation, Update-Strategie.
 - **[Skripte](scripts.md)** – Alle Skripte unter `scripts/` (Installation,
   GitHub-Deployment, Diagnose, Verifikation) inkl. Verwendung.
+- **[Feature-Ausbau & Architektur-Plan](HomePanel%20%E2%80%93%20Major%20Feature%20Expansion%20%26%20Architecture%20Upgrade.md)**
+  – Historische Planungs-/Ausbauvorlage (Phasen 1–5), Grundlage der Umsetzung.
 
 ## Weitere Wissensbasis
 

@@ -21,11 +21,12 @@ Alle Hilfsskripte für Installation, Deployment, Diagnose und Verifikation.
 
 ## Verifikation (Regressionstests, headless)
 
-Alle `verify_*.py`-Skripte laufen ohne Display/GUI und prüfen einzelne
-Bestandteile. Ausführen nach jeder Änderung am betroffenen Bereich:
+Alle `verify_*.py`-Skripte in `scripts/verify/` laufen ohne Display/GUI und
+prüfen einzelne Bestandteile. Ausführen nach jeder Änderung am betroffenen
+Bereich:
 
 ```bash
-.venv/bin/python scripts/verify_conditions.py
+.venv/bin/python scripts/verify/verify_conditions.py
 ```
 
 | Skript | Prüft |
@@ -44,5 +45,5 @@ Bestandteile. Ausführen nach jeder Änderung am betroffenen Bereich:
 | `verify_system_monitor.py` | System-Monitor-API (Metriken aus /proc, /sys). |
 | `verify_web_widget.py` | Web-Widget-Logik inkl. Fallback ohne QtWebEngine. |
 
-Hinweis: `verify_*.py` besitzen keine Abhängigkeit vom Hardware-/Display-Setup
-und können auch auf dem Entwicklungsrechner laufen.
+Hinweis: `scripts/verify/*.py` besitzen keine Abhängigkeit vom
+Hardware-/Display-Setup und können auch auf dem Entwicklungsrechner laufen.

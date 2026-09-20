@@ -5,7 +5,7 @@ Boots the real MainWindow offscreen (QT_QPA_PLATFORM=offscreen) and verifies:
   2. the example plugin is discovered and enabled ("geladen" via manager),
   3. the SettingsScreen Plugins tab lists "Beispiel Plugin v1.0.0 [enabled]".
 
-Usage: QT_QPA_PLATFORM=offscreen python scripts/verify_plugin_boot.py
+Usage: QT_QPA_PLATFORM=offscreen python scripts/verify/verify_plugin_boot.py
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import logging
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QListWidget
