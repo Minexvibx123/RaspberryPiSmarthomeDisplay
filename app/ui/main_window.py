@@ -15,7 +15,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QFileSystemWatcher, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QPixmap, QTouchEvent
 from PySide6.QtWidgets import (
-    QApplication, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton,
+    QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton,
     QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
@@ -355,12 +355,15 @@ class MainWindow(QMainWindow):
         self._legacy_overlay.hide()
         self._legacy_active = False
 
-        # App-weiter Event-Filter: Jede Interaktion (inkl. Touch) weckt den
-        # Standby bzw. setzt die Timer zurueck – unabhaengig davon, welches
-        # Widget die Eingabe konsumiert.
-        self._app = self.app or QApplication.instance()
-        if self._app is not None:
-            self._app.installEventFilter(self)
+        # Window-weiter Event-Filter: Jede Interaktion im eigenen Fenster-
+        # baum (inkl. Touch auf beliebigen Widgets wie dem Web-Widget) weckt
+        # den Standby bzw. setzt die Timer zurueck. Bewusst NICHT app-weit:
+        # QtWebEngine erzeugt interne Helper-/Offscreen-Objekte (v.a. unter
+        # Wayland). Ein app-weiter Python-Filter sieht deren Events und stuerzt
+        # in PySide6::getWrapperForQObject ab ("browser app bringt alles zum
+        # Crashen" – Stack-Overflow in sendThroughApplicationEventFilters).
+        # Der Filter auf dem MainWindow sieht auch alle Kind-Widget-Events.
+        self.installEventFilter(self)
 
         self._reset_standby_timer()
 
@@ -599,11 +602,23 @@ class MainWindow(QMainWindow):
         if t in (QEvent.Type.TouchBegin, QEvent.Type.MouseButtonPress,
                  QEvent.Type.MouseButtonDblClick, QEvent.Type.MouseMove,
                  QEvent.Type.Wheel, QEvent.Type.KeyPress):
-            self._wake_or_reset()
+            self._handle_input_event()
         return super().eventFilter(obj, event)
 
+    def _handle_input_event(self) -> None:
+        # Re-Entrancy-Guard: Falls eine Aktion waehrend der Event-Zustellung
+        # selbst Events ausloest (z.B. Property-Aenderungen durch QtWebEngine),
+        # darf der Filter nicht rekursiv erneut zusagen.
+        if getattr(self, "_in_input_handler", False):
+            return
+        self._in_input_handler = True
+        try:
+            self._wake_or_reset()
+        finally:
+            self._in_input_handler = False
+
     def touchEvent(self, event: QTouchEvent) -> None:
-        self._wake_or_reset()
+        self._handle_input_event()
         super().touchEvent(event)
 
     def resizeEvent(self, event) -> None:
