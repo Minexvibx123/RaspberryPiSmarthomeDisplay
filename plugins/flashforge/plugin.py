@@ -2,7 +2,12 @@ from app.plugins.api import Plugin as PluginBase, PluginSettingDef
 from app.widgets.registry import register_widget_class
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from .widgets import PrintControlWidget, PrintJogWidget, PrinterStatusWidget
+from .widgets import (
+    FlashforgeCameraWidget,
+    PrintControlWidget,
+    PrintJogWidget,
+    PrinterStatusWidget,
+)
 
 
 class Plugin(PluginBase):
@@ -11,6 +16,7 @@ class Plugin(PluginBase):
     def register_widgets(self):
         register_widget_class(PrinterStatusWidget)
         register_widget_class(PrintControlWidget)
+        register_widget_class(FlashforgeCameraWidget)
 
     def create_app_view(self, parent=None):
         view = QWidget(parent)
@@ -18,7 +24,14 @@ class Plugin(PluginBase):
         title = QLabel("Flashforge Adventurer 5M Pro")
         title.setStyleSheet("font-size: 22px; font-weight: 800;")
         layout.addWidget(title)
-        config = {"printer_host": self.settings.get("host", "192.168.178.112"), "printer_port": self.settings.get("port", 8899)}
+        config = {
+            "printer_host": self.settings.get("host", "192.168.178.112"),
+            "printer_port": self.settings.get("port", 8899),
+            "host": self.settings.get("host", "192.168.178.112"),
+        }
+        camera = FlashforgeCameraWidget(0, config, parent=view)
+        camera.setMinimumHeight(240)
+        layout.addWidget(camera)
         layout.addWidget(PrinterStatusWidget(0, config, parent=view))
         layout.addWidget(PrintControlWidget(0, config, parent=view))
         layout.addWidget(PrintJogWidget(config, parent=view), 1)

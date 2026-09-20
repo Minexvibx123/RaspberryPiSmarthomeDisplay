@@ -10,7 +10,7 @@
 
 **Core Value Proposition**: Users can visually design their home dashboard by dragging, dropping, resizing, and configuring widgets directly on the touchscreen — no YAML, no JSON, no code editing required.
 
-**Current State**: The project is functional and running on physical hardware. It has a complete widget system, visual editor, theme system, deployment pipeline, a full Phase 1-5 plugin architecture (animations, conditional styling, safe expressions, custom widget builder, a list-based workflow engine, and extended backup), plus real integrations for Flashforge, Pi-hole, Docker, local network devices, system monitoring, and an optional internal browser. Headless verification scripts in `scripts/verify_*.py` (16 as of this writing) cover plugin lifecycle/error isolation, widgets, conditions, animations, templates, backup, workflows, expressions, and the custom widget builder - run them after any change to the touched area.
+**Current State**: The project is functional and running on physical hardware. It has a complete widget system, visual editor, theme system, deployment pipeline, a full Phase 1-5 plugin architecture (animations, conditional styling, safe expressions, custom widget builder, a list-based workflow engine, and extended backup), plus real integrations for Flashforge (including an MJPEG printer camera), Pi-hole, Docker, local network devices, system monitoring, and an optional internal browser. Headless verification scripts in `scripts/verify_*.py` (13 as of this writing) cover plugin lifecycle/error isolation, widgets, conditions, animations, templates, backup, workflows, expressions, and the custom widget builder - run them after any change to the touched area.
 
 ---
 
@@ -105,6 +105,7 @@ homepanel/
 │       ├── notification.py       # NotificationWidget (alerts)
 │       ├── sensor_graph.py       # SensorGraphWidget (history graph)
 │       ├── timer.py              # TimerWidget (countdown/stopwatch)
+│       ├── weather_api.py        # WeatherApiWidget (Open-Meteo, kein HA/API-Key nötig)
 │       ├── ha_extra.py           # HA-specific widgets: Calendar, TodoList, AlarmPanel,
 │       │                         #   Vacuum, Fan, Lock, Humidifier, Person, SceneGrid,
 │       │                         #   NumberInput, Select
@@ -116,7 +117,8 @@ homepanel/
 ├── plugins/                      # Real Phase 3+ integrations (see AI-CONTEXT 5.6)
 │   ├── example_plugin/           # Minimal reference plugin (lifecycle proof)
 │   ├── system_monitor/           # CPU/RAM/Storage/Network/Service widgets, /proc + /sys only
-│   ├── flashforge/               # Flashforge TCP client (port 8899) + status/control widgets
+│   ├── flashforge/               # Flashforge TCP client (port 8899) + status/control/jog
+│   │                             #   widgets + MJPEG camera widget (stream on visible only)
 │   ├── pihole/                   # Pi-hole v6 REST client + stats/control widgets
 │   ├── network/                  # ping-based NetworkDeviceWidget
 │   ├── docker/                   # docker CLI wrapper + DockerWidget (start/stop/restart)
@@ -129,12 +131,14 @@ homepanel/
 │   ├── configure_ha.py           # Interactive HA configuration script
 │   ├── install-github.sh         # First-time install directly from GitHub
 │   ├── update-github.sh          # Safe fast-forward update from GitHub
-│   └── verify_*.py               # Headless regression suite (16 scripts) - plugin boot,
+│   └── verify_*.py               # Headless regression suite (13 scripts) - plugin boot,
 │                                 #   error isolation, conditions, animations, templates,
 │                                 #   docker, system monitor, expressions, workflows,
 │                                 #   backup, custom widget, screensaver, web widget
 ├── systemd/
 │   └── homepanel.service         # systemd unit file (template with /home/pi placeholders)
+├── docs/                         # Detailed documentation (architecture, core, ui,
+│                                 #   widgets, plugin development, deployment, scripts)
 ├── thoughts/                     # Development notes
 ├── .venv/                        # Python virtual environment
 ├── requirements.txt              # Python dependencies
@@ -263,7 +267,7 @@ class MyWidget(BaseWidget):
 # app/widgets/registry.py
 WIDGET_CLASSES: list[type[BaseWidget]] = [
     ButtonWidget, LightWidget, SwitchWidget, SliderWidget, ThermostatWidget,
-    SensorWidget, CoverWidget, WeatherWidget, ClockWidget, TextWidget,
+    SensorWidget, CoverWidget, WeatherWidget, WeatherApiWidget, ClockWidget, TextWidget,
     IconWidget, EntityListWidget,
     CalendarWidget, TodoListWidget, AlarmPanelWidget, VacuumWidget, FanWidget,
     LockWidget, HumidifierWidget, PersonWidget, SceneGridWidget,
@@ -281,10 +285,10 @@ WIDGET_CLASSES: list[type[BaseWidget]] = [
 WIDGET_REGISTRY: dict[str, type[BaseWidget]] = {cls.type_name: cls for cls in WIDGET_CLASSES}
 ```
 
-**42 core registered widget types** across 7 categories (plugins add more at runtime -
+**43 core registered widget types** across 7 categories (plugins add more at runtime -
 see 5.6):
 - **Steuerung** (Control, 16): Button, Light, Switch, Slider, Thermostat, Cover, MediaPlayer, Timer, Fan, Lock, Humidifier, AlarmPanel, Vacuum, SceneGrid, NumberInput, Select
-- **Anzeige** (Display, 13): Sensor, Weather, Clock, Text, Icon, EntityList, Camera, SensorGraph, Calendar, TodoList, Person, Notification, Energy
+- **Anzeige** (Display, 14): Sensor, Weather, WeatherApi (Open-Meteo), Clock, Text, Icon, EntityList, Camera, SensorGraph, Calendar, TodoList, Person, Notification, Energy
 - **Internet** (8): CryptoPrice, StockPrice, Currency, Quote, Joke, Holiday, InternetStatus, News
 - **System** (2): SystemMonitor (built-in demo widget), Console
 - **Allgemein** (1): Container
@@ -322,7 +326,7 @@ stack (never as an external process).
 | Plugin (`plugins/<id>/`) | Real integration | Widgets | Notes |
 |---|---|---|---|
 | `system_monitor` | `/proc`, `/sys`, `os.statvfs` (no deps) | CPU, RAM, Storage, Network, SystemService (systemd) | Service start/stop/restart require confirmation + `sudo -n systemctl` |
-| `flashforge` | Raw TCP client, port 8899, `~M601 S1` control handshake ([protocol ref](https://github.com/Parallel-7/flashforge-api-docs/wiki/TCP-Protocol)) | PrinterStatusWidget, PrintControlWidget | Background `QThread`; pause/resume/cancel confirmed for cancel |
+| `flashforge` | Raw TCP client, port 8899, `~M601 S1` control handshake ([protocol ref](https://github.com/Parallel-7/flashforge-api-docs/wiki/TCP-Protocol)) | PrinterStatusWidget, PrintControlWidget, PrintJogWidget, FlashforgeCameraWidget | Background `QThread`s; pause/resume/cancel confirmed for cancel; MJPEG camera (`flashforge_camera`) streams only while its widget is visible (`showEvent`/`hideEvent`) and stops cleanly on delete |
 | `pihole` | Pi-hole v6 REST API (`/api/...`, `sid` session header) | PiHoleStatsWidget, PiHoleControlWidget | Timed blocking disable (5/30/60 min or permanent) |
 | `network` | `ping` subprocess, bounded timeout | NetworkDeviceWidget | Per-device host/IP configured via PROPERTY_SCHEMA |
 | `docker` | `docker` CLI via `subprocess` (local socket) | DockerWidget | Container list + Start/Stop/Restart, confirmation for Stop/Restart |

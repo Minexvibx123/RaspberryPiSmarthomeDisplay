@@ -416,6 +416,7 @@ class MainWindow(QMainWindow):
         if index is not None:
             old = self.stack.widget(index)
             self.stack.removeWidget(old)
+            old.hide()
             old.deleteLater()
             self._plugin_app_index = None
         app_wrap = QWidget()

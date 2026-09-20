@@ -5,6 +5,19 @@ Raspberry Pi 5 + 7"-Touchdisplay. Der Fokus liegt auf **visueller
 Anpassbarkeit ohne YAML/JSON/Code** – Elemente werden per Tippen, Ziehen und
 Skalieren direkt auf dem Bildschirm bearbeitet.
 
+## Dokumentation
+
+Ausführliche Referenzdokumentation für Entwickler und Betreiber liegt im
+Verzeichnis [`docs/`](docs/README.md):
+
+- [Architektur](docs/architecture.md)
+- [Core-Layer (Datenbank, HA-Client, State-Manager, …)](docs/core.md)
+- [UI-Layer (Editor, Dashboard, Themes, …)](docs/ui.md)
+- [Widget-System & Widget-Referenz](docs/widgets.md)
+- [Plugin-Entwicklung](docs/plugin-development.md) & [Plugin-Katalog](docs/plugins/README.md)
+- [Deployment / systemd](docs/deployment.md)
+- [Skripte](docs/scripts.md)
+
 ## Features
 
 - Verbindung zu Home Assistant über REST + WebSocket (Live-Updates, Auto-Reconnect)
@@ -12,9 +25,9 @@ Skalieren direkt auf dem Bildschirm bearbeitet.
 - Visueller Editor: Drag & Drop, Skalieren, Eigenschaftenpanel, Ebenen (z-Index),
   Duplizieren, Löschen, Rückgängig/Wiederholen, Raster/Snap
 - Editor: Copy/Paste (Ctrl+C/V), Multi-Select (Shift+Click), bedingte Sichtbarkeit
-- Element-Bibliothek (42 Kern-Widget-Typen, Plugins registrieren weitere zur Laufzeit):
+- Element-Bibliothek (43 Kern-Widget-Typen, Plugins registrieren weitere zur Laufzeit):
   - Steuerung: Button, Licht, Schalter, Slider, Thermostat, Rollladen, Medienplayer, Timer, Lüfter, Schloss, Luftbefeuchter, Alarmanlage, Saugroboter, Szenen-Grid, Zahlenwert, Auswahlliste
-  - Anzeige: Sensor, Wetter, Uhr, Text, Icon, Entity-Liste, Kamera, Sensor-Verlauf, Kalender, To-Do-Liste, Person, Container, Benachrichtigungen, Energie
+  - Anzeige: Sensor, Wetter (Home Assistant), Wetter (Open-Meteo, ohne API-Key), Uhr, Text, Icon, Entity-Liste, Kamera, Sensor-Verlauf, Kalender, To-Do-Liste, Person, Container, Benachrichtigungen, Energie
   - Internet: Kryptokurs, Aktienkurs, Wechselkurs, Zitat, Witz, Feiertag, Internet-Status, News-Feed
   - System: System-Monitor, Konsole
   - Apps: Web-Panel (optional, QtWebEngine mit sicherem Fallback ohne Absturz)
@@ -39,7 +52,7 @@ Skalieren direkt auf dem Bildschirm bearbeitet.
 - Editor-Modus per 3-Sekunden-Langdruck auf die obere linke Ecke, optional PIN-geschützt
 - Plugin-System mit grafischer Verwaltung (aktivieren/deaktivieren/neu laden, Fehler werden isoliert angezeigt statt die App abstürzen zu lassen); mitgelieferte Plugins:
   - **System-Monitoring**: CPU/RAM/Speicher/Netzwerk sowie systemd-Dienste (Start/Stop/Neustart mit Bestätigung)
-  - **Flashforge**: Live-Status/-Steuerung für Flashforge-3D-Drucker über das dokumentierte TCP-Protokoll (Port 8899)
+  - **Flashforge**: Live-Status/-Steuerung für Flashforge-3D-Drucker über das dokumentierte TCP-Protokoll (Port 8899) sowie eine **Drucker-Kamera** (MJPEG-Livestream, wird nur bei sichtbarem Widget gestartet)
   - **Pi-hole**: Statistiken und zeitlich begrenztes Deaktivieren der Blockierung über die Pi-hole-v6-API
   - **Netzwerk**: Erreichbarkeit einzelner Geräte per Ping
   - **Docker**: Container-Liste, Start/Stop/Neustart (lokaler Docker-Socket)
@@ -80,7 +93,7 @@ app/
 └── widgets/
     ├── base.py               Basisklasse + Property-Schema-System (inkl. Animation/Styling-Felder)
     ├── button.py, light.py, switch.py, sensor.py, thermostat.py,
-    │   slider.py, cover.py, weather.py, clock.py, text.py,
+    │   slider.py, cover.py, weather.py, weather_api.py, clock.py, text.py,
     │   icon_widget.py, entity_list.py, console.py, energy.py, web.py
     ├── custom_widget.py      Eigenes Widget (Custom Widget Builder Rendering)
     └── registry.py           Widget-Typ-Registry (Plugin-Seam)
@@ -93,6 +106,14 @@ plugins/                      Echte Integrationen, siehe Feature-Liste oben
 ├── network/
 ├── docker/
 └── browser/
+
+docs/                         Ausführliche Dokumentation (Architektur, Core,
+                              UI, Widgets, Plugin-Entwicklung, Deployment)
+
+scripts/                      Installations-, Aktualisierungs-, Diagnose- und
+                              Verifikations-Skripte (siehe docs/scripts.md)
+
+systemd/                      systemd-Unit-Vorlage für den Kiosk-Autostart
 ```
 
 ## Entwicklung / Ausführen

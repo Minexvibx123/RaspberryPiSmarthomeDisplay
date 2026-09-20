@@ -101,6 +101,7 @@ class DashboardCanvas(QWidget):
     def clear(self) -> None:
         for inst in self.widget_instances.values():
             inst.removeEventFilter(self)
+            inst.hide()
             inst.deleteLater()
         self.widget_instances.clear()
         self.selected_widget_id = None
@@ -147,6 +148,7 @@ class DashboardCanvas(QWidget):
         self.db.delete_widget(widget_id)
         inst = self.widget_instances.pop(widget_id, None)
         if inst:
+            inst.hide()
             inst.deleteLater()
         if self.selected_widget_id == widget_id:
             self.select_widget(None)

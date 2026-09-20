@@ -1,9 +1,55 @@
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
-from app.widgets.base import BaseWidget
+from app.widgets.base import BaseWidget, PropertyDef
 
 from .api import FlashforgeClient
+
+
+class _MjpegReader(QThread):
+    frame_ready = Signal(bytes)
+    offline = Signal()
+
+    def __init__(self, url, parent=None):
+        super().__init__(parent)
+        self.url = url
+        self._quit = False
+
+    def stop(self):
+        self._quit = True
+        self.requestInterruption()
+
+    def run(self):
+        import requests
+        while not self._quit and not self.isInterruptionRequested():
+            try:
+                response = requests.get(self.url, stream=True, timeout=(5, 10))
+                response.raise_for_status()
+                if self._quit:
+                    response.close()
+                    return
+                buffer = bytearray()
+                for chunk in response.iter_content(8192):
+                    if self._quit:
+                        break
+                    buffer.extend(chunk)
+                    start = buffer.find(b"\xff\xd8")
+                    while start != -1:
+                        end = buffer.find(b"\xff\xd9", start + 2)
+                        if end == -1:
+                            break
+                        frame = bytes(buffer[start:end + 2])
+                        del buffer[:end + 2]
+                        self.frame_ready.emit(frame)
+                        start = buffer.find(b"\xff\xd8")
+                    if len(buffer) > 4_000_000:
+                        buffer.clear()
+                response.close()
+            except Exception:
+                if not self._quit:
+                    self.offline.emit()
+                    self.msleep(2000)
 
 
 class _StatusFetch(QThread):
@@ -210,3 +256,108 @@ class PrintJogWidget(QWidget):
     def _flash(self, message):
         self.feedback.setText(message)
         self._feedback_timer.start(3000)
+
+
+class FlashforgeCameraWidget(BaseWidget):
+    type_name = "flashforge_camera"
+    display_name = "Drucker-Kamera"
+    category = "Hardware"
+    icon = "camera"
+    default_size = (320, 200)
+
+    PROPERTY_SCHEMA = [
+        PropertyDef("host", "Drucker-IP", "text", "192.168.178.112", group="Verbindung"),
+        PropertyDef("stream_port", "Kamera-Port", "number", 8080, min=1, max=65535, group="Verbindung"),
+        PropertyDef("stream_path", "Stream-Pfad", "text", "/?action=stream", group="Verbindung"),
+    ]
+
+    def __init__(self, widget_id, config, state_manager=None, parent=None):
+        super().__init__(widget_id, config, state_manager, parent)
+        self._reader = None
+        self._last = None
+        self._starting = False
+
+    def build_ui(self):
+        self.image_label = QLabel("Kamera offline")
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setStyleSheet(
+            "color: #888888; font-size: 14px; border: none; background-color: #000000; border-radius: 10px;"
+        )
+        self.content_layout.addWidget(self.image_label, 1)
+
+    def _stream_url(self):
+        host = self.get_prop("host", "192.168.178.112")
+        port = int(self.get_prop("stream_port", 8080))
+        path = self.get_prop("stream_path", "/?action=stream") or "/?action=stream"
+        return f"http://{host}:{port}{path}"
+
+    def _start_stream(self):
+        if self._starting:
+            return
+        self._starting = True
+        try:
+            self._stop_stream()
+            reader = _MjpegReader(self._stream_url())
+            reader.frame_ready.connect(self._on_frame)
+            reader.offline.connect(self._on_offline)
+            reader.finished.connect(reader.deleteLater)
+            self._reader = reader
+            reader.start()
+        finally:
+            self._starting = False
+
+    def _stop_stream(self):
+        reader = self._reader
+        self._reader = None
+        if reader is not None:
+            reader.stop()
+            if reader.isRunning():
+                reader.wait(300)
+
+    def _on_frame(self, data):
+        try:
+            pixmap = QPixmap.fromImage(QImage.fromData(data))
+            if not pixmap.isNull():
+                self._last = pixmap
+                self._scale_image()
+        except RuntimeError:
+            pass
+
+    def _on_offline(self):
+        try:
+            self._last = None
+            self.image_label.clear()
+            self.image_label.setText("Kamera offline")
+        except RuntimeError:
+            pass
+
+    def _scale_image(self):
+        try:
+            if self._last is None or self.image_label.size().isEmpty():
+                return
+            self.image_label.setPixmap(
+                self._last.scaled(
+                    self.image_label.size(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+        except RuntimeError:
+            pass
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self.isVisible():
+            self._start_stream()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._stop_stream()
+
+    def closeEvent(self, event):
+        self._stop_stream()
+        super().closeEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._scale_image()

@@ -37,11 +37,12 @@ from app.widgets.text import TextWidget
 from app.widgets.thermostat import ThermostatWidget
 from app.widgets.timer import TimerWidget
 from app.widgets.weather import WeatherWidget
+from app.widgets.weather_api import WeatherApiWidget
 from app.widgets.web import WebWidget
 
 WIDGET_CLASSES: list[type[BaseWidget]] = [
     ButtonWidget, LightWidget, SwitchWidget, SliderWidget, ThermostatWidget,
-    SensorWidget, CoverWidget, WeatherWidget, ClockWidget, TextWidget,
+    SensorWidget, CoverWidget, WeatherWidget, WeatherApiWidget, ClockWidget, TextWidget,
     IconWidget, EntityListWidget,
     # Home Assistant domain coverage
     CalendarWidget, TodoListWidget, AlarmPanelWidget, VacuumWidget, FanWidget,
