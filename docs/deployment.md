@@ -26,7 +26,13 @@ HA-Adresse + Long-Lived-Token oder Demo-Modus).
 ```
 
 Das Skript:
-1. Installiert Systempakete (`python3-venv`, `python3-pip`, `libgl1`, `libegl1`).
+1. Installiert alle **Systempakete**: den Wayland-Kiosk-Stack (`cage`,
+   `wlr-randr`, `xwayland`), die Qt/PySide6-Laufzeitbibliotheken (`libgl1`,
+   `libegl1`, `libglib2.0-0[t64]`, `libxcb-*`, `libxkbcommon*`,
+   `libwayland-*`, `libfontconfig1`, …) sowie `python3-venv/python3-pip`
+   (und verifiziert danach, dass `cage` und `wlr-randr` verfügbar sind).
+   Hinweis: `libglib2.0-0t64` wird auf älteren Systemen (Bookworm)
+   automatisch durch `libglib2.0-0` ersetzt.
 2. Stellt sicher, dass der Benutzer in der Gruppe `video` ist (Backlight/DRM).
 3. Legt `.venv` an und installiert die Python-Abhängigkeiten.
 4. Kopiert und patcht `systemd/homepanel.service`

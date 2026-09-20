@@ -165,7 +165,9 @@ Für eine lokale Entwicklungskopie bleibt das bisherige Setup verfügbar:
 sudo systemctl start homepanel.service
 ```
 
-Das Skript legt ein virtualenv an, installiert Abhängigkeiten und richtet einen
+Das Skript installiert alle Systempakete (Wayland-Kiosk-Stapel: `cage`,
+`wlr-randr`, `xwayland`, dazu die Qt/PySide6-Laufzeitbibliotheken), legt ein
+virtualenv an, installiert die Python-Abhängigkeiten und richtet einen
 systemd-Service ein, der HomePanel im Kiosk-/Fullscreen-Modus startet.
 Für den Standby-Modus (Display abschalten) installiert es zusätzlich eine
 udev-Regel, die der Gruppe `video` Schreibrechte auf die Backlight-Sysfs-

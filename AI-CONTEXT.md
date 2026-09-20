@@ -561,7 +561,12 @@ CREATE TABLE workflows (  -- Phase 5, see 5.11 Workflow Engine
 ```
 
 This script:
-1. Installs system packages (`python3-venv`, `python3-pip`, `libgl1`, `libegl1`)
+1. Installs all system packages: the Wayland-kiosk stack (`cage`, `wlr-randr`,
+   `xwayland`), the Qt/PySide6 runtime libraries (`libgl1`, `libegl1`,
+   `libglib2.0-0t64`, `libxcb-*`, `libxkbcommon*`, `libwayland-*`,
+   `libfontconfig1`, etc.) and `python3-venv`/`python3-pip`, then verifies
+   `cage` + `wlr-randr` are present. On Bookworm, `libglib2.0-0t64` is
+   automatically replaced by `libglib2.0-0`.
 2. Ensures user is in `video` group (for backlight/DRM access)
 3. Creates `.venv` and installs Python dependencies
 4. Copies and patches `systemd/homepanel.service` (replaces `/home/pi/homepanel` with actual path, `User=pi` with current user)

@@ -1,15 +1,40 @@
 #!/usr/bin/env bash
-# One-time installer for Raspberry Pi OS (Bookworm, 64-bit).
-# Sets up a virtualenv, installs dependencies and enables autostart via systemd.
+# One-time installer for Raspberry Pi OS (Bookworm/Trixie, 64-bit).
+# Sets up all system packages (Wayland-Kiosk + Qt runtime), creates a
+# virtualenv, installs Python requirements and enables autostart via systemd.
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE_SRC="$APP_DIR/systemd/homepanel.service"
 SERVICE_DST="/etc/systemd/system/homepanel.service"
 
+# libglib2.0-0t64 (Trixie+) vs. libglib2.0-0 (Bookworm/älter)
+GLIB_PACKAGE="libglib2.0-0t64"
+if ! apt-cache show "$GLIB_PACKAGE" >/dev/null 2>&1; then
+    GLIB_PACKAGE="libglib2.0-0"
+fi
+
 echo "==> Installing system dependencies"
+echo "    Kiosk: cage (Wayland-Compositor), wlr-randr (Rotation), xwayland"
+echo "    Qt/PySide6 runtime + Python tooling"
 sudo apt-get update
-sudo apt-get install -y python3-venv python3-pip libgl1 libegl1
+sudo apt-get install -y \
+    python3-venv python3-pip \
+    cage wlr-randr xwayland \
+    libgl1 libegl1 "$GLIB_PACKAGE" libdbus-1-3 \
+    libfontconfig1 libfreetype6 libharfbuzz0b \
+    libxkbcommon0 libxkbcommon-x11-0 \
+    libwayland-client0 libwayland-cursor0 libwayland-server0 \
+    libxcb1 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+    libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-shm0 \
+    libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 \
+    fonts-dejavu-core
+
+echo "==> Verifying kiosk tools"
+command -v cage >/dev/null 2>&1 || { echo "    FEHLER: 'cage' wurde nicht installiert." >&2; exit 1; }
+command -v wlr-randr >/dev/null 2>&1 || { echo "    FEHLER: 'wlr-randr' wurde nicht installiert." >&2; exit 1; }
+echo "    cage $(cage --version 2>/dev/null || echo 'ok')"
+echo "    wlr-randr $(wlr-randr --version 2>/dev/null || echo 'ok')"
 
 echo "==> Ensuring user '$USER' is in 'video' group (required for backlight/DRM access)"
 if id -nG "$USER" | grep -qw video; then
