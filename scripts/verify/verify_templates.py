@@ -18,6 +18,14 @@ try:
     templates = db.list_templates("widget")
     assert loaded is not None and loaded.config == {"unit": "C"}
     assert [(template.name, template.type) for template in templates] == [("Temperature compact", "sensor")]
+
+    actions = [{"domain": "media_player", "service": "media_pause", "entity_id": "media_player.sonos", "data": {}}]
+    action_template = db.save_template("Pause Sonos", "service_actions", {"actions": actions})
+    loaded_actions = db.get_template(action_template.id)
+    assert loaded_actions is not None and loaded_actions.kind == "service_actions"
+    assert loaded_actions.config["actions"] == actions
+    assert [template.name for template in db.list_templates("service_actions")] == ["Pause Sonos"]
+
     db.delete_template(saved.id)
     assert db.list_templates("widget") == []
 finally:

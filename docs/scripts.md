@@ -47,14 +47,18 @@ Bereich:
 | `verify_plugin_error_isolation.py` | Dass ein absichtlich kaputtes Plugin isolierte Fehler erzeugt und die App nicht abstürzt. |
 | `verify_conditions.py` | Operator-Auswertung (`matches_condition`). |
 | `verify_animations.py` | Animation-Engine (Namen/Viabilität). |
-| `verify_templates.py` | Speichern und Laden von Vorlagen in der Datenbank. |
+| `verify_templates.py` | Speichern und Laden von Widget- und Service-Aktionsvorlagen in der Datenbank. |
 | `verify_expressions.py` | Expression-Engine inkl. Abwehrung unsicherer Ausdrücke. |
 | `verify_workflows.py` | Workflow-Engine, Service-Aktionen und Speicherung. |
+| `verify_workflow_ui.py` | Offscreen-Erstellung, Anzeige und Aktivierungswechsel in der Workflow-Verwaltung. |
+| `verify_swipe_navigation.py` | Dashboard-Seitenwechsel per horizontalem Wisch, Seitengrenzen und Editor-Sperre. |
+| `verify_app_store.py` | Lokaler Store-Katalog, Installieren/Entfernen und Erzeugung der gebündelten App-Views. |
 | `verify_backup.py` | Backup/Export/Import – inkl. Geheimnis-Ausschluss und Roundtrip. |
 | `verify_custom_widget.py` | Custom-Widget-Rendering und Builder-Persistenzpfad. |
 | `verify_screensaver.py` | Screensaver-Modi + Hintergrundbild-Einstellung. |
 | `verify_docker.py` | Docker-Plugin-API-Wrapper. |
 | `verify_system_monitor.py` | System-Monitor-API (Metriken aus /proc, /sys). |
+| `verify_network.py` | Sichere private CIDR-Grenzen, lokale Netzerkennung und Discovery-Ergebnisse ohne echte Netzwerkanfragen. |
 | `verify_web_widget.py` | Web-Widget-Logik inkl. Fallback ohne QtWebEngine. |
 
 Die Liste oben umfasst die derzeit versionierten `verify_*.py`-Skripte. Die

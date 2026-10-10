@@ -17,7 +17,9 @@ generiert – spezifische Widget-Kenntnis steckt nur dort, wo sie nötig ist.
 | `themes.py` | Theme-Presets, Stylesheet-Generator, Theme-Editor |
 | `setup_wizard.py` | Ersteinrichtungsassistent |
 | `settings_screen.py` | Einstellungen (Verbindung, Design, Standby, Plugins, Backup) |
+| `workflow_editor.py` | Workflow-Verwaltung und -Editor (Trigger, Aktionen, Wartezeiten) |
 | `app_launcher.py` | Touch-Launcher für Plugin-Apps (z. B. Browser) |
+| `app_store.py` | Lokaler Katalog zum Aktivieren/Deaktivieren gebündelter App-Plugins |
 | `custom_widget_builder.py` | Dialog zum Zusammenstellen eigener Widgets |
 
 ## `main_window.py` – Hauptfenster
@@ -32,6 +34,8 @@ generiert – spezifische Widget-Kenntnis steckt nur dort, wo sie nötig ist.
   ein Neustart während `OFF` kein dauerhaft schwarzes Panel hinterlässt.
   Touch-Ereignisse innerhalb des HomePanel-Fensters wecken das Display und
   setzen die Inaktivitäts-Timer zurück.
+- Nach der ersten Touch-Eingabe wird der Mauszeiger ausgeblendet; erst eine
+  nicht synthetisierte Mausbewegung blendet ihn wieder ein.
 - Editor-Aktivierung per 3-Sekunden-Langdruck oben links.
 - Verbindungs-Badge (REST/WebSocket-Status).
 - Start der Laufzeit (`_start_runtime`) mit State-Manager, Service-Registry,
@@ -45,6 +49,13 @@ generiert – spezifische Widget-Kenntnis steckt nur dort, wo sie nötig ist.
   und fügt Auswahl/Verschieben/Skalieren hinzu).
 - Hört auf `state_manager.entity_updated` und leitet Änderungen an die
   betroffenen Widgets (`on_state_changed`) weiter.
+- Im normalen Dashboard-Modus wechselt ein horizontaler Wisch nach links/rechts
+  zur nächsten/vorherigen Seite. Während der Fingerbewegung liegt die Zielseite
+  bereits unter einem verschiebbaren Abbild der aktuellen Seite. Beim Loslassen
+  wird ab 14 % Canvas-Breite (mindestens 80 px) abgeschlossen; kürzere Wischs federn zur
+  Ausgangsseite zurück. Kurze oder überwiegend vertikale Bewegungen werden
+  ignoriert; an den Rändern gibt es keinen zyklischen Sprung. Im Editor-Modus
+  bleiben Ziehen und Skalieren unverändert.
 - `clear()`/`delete_widget()` rufen vor dem Löschen `inst.hide()` auf, damit
   Widgets mit laufenden Threads (z. B. Flashforge-Kamera) sauber beendet
   werden (`hideEvent` → Stream stoppen) und kein Signal in ein gelöschtes
@@ -67,7 +78,9 @@ generiert – spezifische Widget-Kenntnis steckt nur dort, wo sie nötig ist.
   (öffnet Builder-Dialoge wie den Custom-Widget-Builder).
 - Die `action`-Property des Button-Widgets öffnet `ServiceActionsDialog`:
   Domain, Service, optionale Entity-ID und Parameter als JSON-Objekt; die
-  geordnete Aktionsliste wird in der Widget-Konfiguration gespeichert.
+  geordnete Aktionsliste wird in der Widget-Konfiguration gespeichert. Häufige
+  Ketten können als `service_actions`-Vorlage gespeichert und auf weitere
+  Buttons angewendet werden.
 
 ## `element_library.py` – Bibliothek + Entity-Picker
 
@@ -80,6 +93,13 @@ generiert – spezifische Widget-Kenntnis steckt nur dort, wo sie nötig ist.
 - Datengetrieben: spiegelt die Seiten aus der Datenbank.
 - Modi: `bottom` (Leiste unten) oder `sidebar` (vertikale Seitenleiste),
   einstellbar über `navigation_style`.
+
+## `design.py` – Design-System
+
+- Zentrale Tokens, `readable()` (WCAG-Kontrast), `apply_theme()` (QPalette +
+  Stylesheet) und `widget_default()` für themenabhängige Widget-Standardwerte.
+- Text- und Akzentfarben der Widgets werden gegen den Hintergrund geprüft und
+  bei zu geringem Kontrast automatisch korrigiert.
 
 ## `themes.py` – Themes
 
@@ -103,16 +123,23 @@ generiert – spezifische Widget-Kenntnis steckt nur dort, wo sie nötig ist.
 
 Tabs für Verbindung (HA-URL/Token, Demo-Modus – als Tab im Hauptfenster),
 Design (Themes, Orientierung, Auflösung, Navigation), Standby & Display,
+Automationen (Entity-Zustand, Aktionskette, Wartezeiten, Aktivieren/Deaktivieren),
 Sicherheit (Editor-PIN), Plugins (Aktivieren/Deaktivieren/Neu laden +
 generierter Einstellungsdialog aus `settings_schema`) und
 Backup/Export/Import. Alles grafisch – keine Konfigdatei wird von Hand editiert.
 Das Icon-Pack ist im Design-Tab auswählbar und wird ohne Neustart auf Dashboard
 und Editor angewendet.
 
-## `app_launcher.py` – Plugin-App-Launcher
+## `app_launcher.py` – App-Launcher und Store
 
-- Listet alle Plugins, die `create_app_view()` überschreiben.
-- Öffnet die Plugin-App im bestehenden Qt-Stack; Zurück-Button führt zum Panel.
+- Der Launcher zeigt alle installierten Apps aus dem `AppCatalog`
+  (`app/apps/`: 30 eingebaute Apps plus Plugin-Apps).
+- Der App-Store (`app_store.py`) installiert/entfernt Apps und kann Pakete aus
+  GitHub-Repositories laden (`app/plugins/installer.py`).
+- Sicherheit der Repo-Installation: nur `https://github.com`, Größen- und
+  Dateilimits, Schutz vor Zip-Slip und Symlinks, kein Import beim Installieren,
+  Installation deaktiviert (Marker `.homepanel-repo`), Bestätigungsdialoge.
+- Entfernen deaktiviert eingebaute/lokale Pakete; Repo-Pakete werden gelöscht.
 
 ## `custom_widget_builder.py` – Custom Widget Builder
 

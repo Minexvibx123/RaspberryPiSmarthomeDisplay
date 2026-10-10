@@ -169,14 +169,25 @@ class Database:
             self.create_page("Home", icon="home")
         from app.ui.themes import BUILT_IN_THEMES
 
-        existing_themes = {theme.name for theme in self.list_themes()}
+        existing_themes = {theme.name: theme for theme in self.list_themes()}
         for index, theme in enumerate(BUILT_IN_THEMES):
-            if theme["name"] not in existing_themes:
+            current = existing_themes.get(theme["name"])
+            if current is None:
                 self.save_theme(
                     theme["name"], theme,
                     set_active=(not existing_themes and index == 0),
                     built_in=True,
                 )
+            elif current.built_in and current.config != theme:
+                self.save_theme(theme["name"], theme, built_in=True)
+
+        if not self.get_setting("visual_refresh_v2", False):
+            aurora = self._conn.execute(
+                "SELECT id FROM themes WHERE name = ?", ("Aurora",),
+            ).fetchone()
+            if aurora:
+                self.set_active_theme(aurora["id"])
+            self.set_setting("visual_refresh_v2", True)
 
         if not self.get_setting("visual_refresh_v1", False):
             active_theme = self.get_active_theme()

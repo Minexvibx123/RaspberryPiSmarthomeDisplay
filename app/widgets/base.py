@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QGraphicsDropShadowEffect, QVBoxLayout, QWidget
 
 from app.core.conditions import OPERATORS, matches_condition
 from app.core.animations import ANIMATION_NAMES, animation_engine
+from app.ui import design
 
 
 @dataclass
@@ -243,13 +244,23 @@ class BaseWidget(QWidget):
     def full_schema(cls) -> list[PropertyDef]:
         return COMMON_SCHEMA + cls.PROPERTY_SCHEMA
 
-    def get_prop(self, key: str, fallback: Any = None) -> Any:
+    def _raw_prop(self, key: str, fallback: Any = None) -> Any:
         if key in self._conditional_overrides:
             return self._conditional_overrides[key]
         for p in self.full_schema():
             if p.key == key:
-                return self.config.get(key, p.default)
+                if key in self.config:
+                    return self.config[key]
+                themed = design.widget_default(key)
+                return p.default if themed is None else themed
         return self.config.get(key, fallback)
+
+    def get_prop(self, key: str, fallback: Any = None) -> Any:
+        value = self._raw_prop(key, fallback)
+        if key in ("text_color", "accent_color"):
+            card = self._raw_prop("bg_color", "#1C2724")
+            return design.readable(value, card, 4.5 if key == "text_color" else 3.0)
+        return value
 
     def apply_style(self) -> None:
         radius = self.get_prop("radius", 16)
@@ -272,7 +283,7 @@ class BaseWidget(QWidget):
         elif self._active:
             border = f"2px solid {accent.name()}"
         else:
-            border = "1px solid rgba(255,255,255,25)"
+            border = f"1px solid {design.rgba(self.get_prop('text_color'), 0.14)}"
             
         gradient_enabled = self.get_prop("bg_gradient_enabled", False)
         if not gradient_enabled:
@@ -300,7 +311,8 @@ class BaseWidget(QWidget):
             effect = QGraphicsDropShadowEffect(self)
             effect.setBlurRadius(28 if self._active else 24)
             effect.setOffset(0, 4)
-            effect.setColor(QColor(*accent.getRgb()[:3], 120) if self._active else QColor(0, 0, 0, 160))
+            soft = design._ACTIVE.get("mode") == "light"
+            effect.setColor(QColor(*accent.getRgb()[:3], 90) if self._active else QColor(0, 0, 0, 55 if soft else 150))
             self.setGraphicsEffect(effect)
         else:
             self.setGraphicsEffect(None)

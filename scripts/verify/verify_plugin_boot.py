@@ -16,7 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QEvent, QPointF, QTimer, Qt
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QApplication, QListWidget
 
 logging.basicConfig(
@@ -49,6 +50,26 @@ main_window_module.Database = lambda: Database(test_db_path)
 
 window = MainWindow(app)
 
+window._hide_cursor_for_touch()
+assert window._touch_cursor_hidden
+assert QApplication.overrideCursor().shape() == Qt.CursorShape.BlankCursor
+synthetic_move = QMouseEvent(
+    QEvent.Type.MouseMove, QPointF(1, 1), QPointF(1, 1), QPointF(1, 1),
+    Qt.MouseButton.NoButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+    Qt.MouseEventSource.MouseEventSynthesizedByQt,
+)
+window.eventFilter(window, synthetic_move)
+assert window._touch_cursor_hidden
+physical_move = QMouseEvent(
+    QEvent.Type.MouseMove, QPointF(2, 2), QPointF(2, 2), QPointF(2, 2),
+    Qt.MouseButton.NoButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+    Qt.MouseEventSource.MouseEventNotSynthesized,
+)
+window.eventFilter(window, physical_move)
+assert not window._touch_cursor_hidden
+assert QApplication.overrideCursor() is None
+check("Touch hides cursor and physical mouse restores it", True)
+
 # --- 1. App booted and plugin manager wired --------------------------- #
 check("Booting MainWindow", "plugin_manager" in vars(window) or hasattr(window, "plugin_manager"))
 pm = window.plugin_manager
@@ -71,6 +92,9 @@ from app.widgets.registry import WIDGET_REGISTRY  # noqa: E402
 check("System monitor widgets registered", all(widget_type in WIDGET_REGISTRY for widget_type in (
     "system_cpu", "system_ram", "system_storage", "system_network",
 )))
+check("Network widgets registered", all(widget_type in WIDGET_REGISTRY for widget_type in (
+    "network_device", "network_inventory",
+)))
 check("No plugin errors", all(i.error is None for i in infos), f"errors={[(i.id, i.error) for i in infos if i.error]}")
 check("Instance loaded", pm.get_instance("example_plugin") is not None)
 
@@ -80,6 +104,12 @@ check("on_load ran (settings marker written)", saved is True, f"marker={saved}")
 
 # --- 3. Plugins tab in SettingsScreen shows the plugin ----------------- #
 check("SettingsScreen exists", hasattr(window, "settings_screen"))
+check("Workflow manager exists", hasattr(window.settings_screen, "workflow_manager"))
+check("App store exists", hasattr(window, "app_store"))
+store_apps = [info.id for info in pm.list_plugins() if info.category == "apps"]
+check("Bundled apps are in local catalogue", all(app_id in store_apps for app_id in (
+    "energy_app", "media_center", "device_center",
+)))
 tab = window.settings_screen._plugin_list  # the QListWidget with plugin entries
 check("Plugin list widget present", isinstance(tab, QListWidget), type(tab).__name__)
 rows = [tab.item(i).text() for i in range(tab.count())]

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from app.core.homeassistant import HomeAssistantClient
 from app.ui.themes import BUILT_IN_THEMES, build_stylesheet
+from app.ui.workflow_editor import WorkflowManagerWidget
 from app.widgets.icons import ICON_PACKS
 
 
@@ -43,6 +44,8 @@ class SettingsScreen(QWidget):
         tabs.addTab(self._build_theme_tab(), "Design")
         tabs.addTab(self._build_standby_tab(), "Standby & Display")
         tabs.addTab(self._build_plugins_tab(), "Plugins")
+        self.workflow_manager = WorkflowManagerWidget(self.db)
+        tabs.addTab(self.workflow_manager, "Automationen")
         tabs.addTab(self._build_security_tab(), "Sicherheit")
         tabs.addTab(self._build_backup_tab(), "Backup")
         root.addWidget(tabs, 1)

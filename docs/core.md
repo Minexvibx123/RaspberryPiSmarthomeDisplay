@@ -171,4 +171,5 @@ Listenbasierte Automationen (Phase-5-Fundament):
 - Hängt an `state_manager.entity_updated`; ein fehlgeschlagener Service-Schritt
   wird geloggt und stoppt diese Workflow-Ausführung. `stop()` trennt den
   Signal-Handler beim Herunterfahren. Gespeichert in der `workflows`-Tabelle; eine
-  node-basierte UI kann später ohne Formatänderung aufgesetzt werden.
+  grafische Listenverwaltung liegt in `app/ui/workflow_editor.py`; sie erstellt
+  und bearbeitet dieses Format ohne separate Workflow-Speicherlogik.

@@ -51,9 +51,9 @@ class MediaPlayerWidget(BaseWidget):
             self.content_layout.addWidget(self.media_info_label)
 
         controls_row = QHBoxLayout()
-        self.prev_btn = QPushButton("⏮")
-        self.play_pause_btn = QPushButton("▶/⏸")
-        self.next_btn = QPushButton("⏭")
+        self.prev_btn = QPushButton("◀◀")
+        self.play_pause_btn = QPushButton("▶")
+        self.next_btn = QPushButton("▶▶")
         
         for b, cb in ((self.prev_btn, self._prev), (self.play_pause_btn, self._play_pause), (self.next_btn, self._next)):
             b.setStyleSheet(f"QPushButton {{ background: rgba(255,255,255,20); color: {self.get_prop('text_color', '#FFFFFF')}; border-radius: 8px; padding: 6px; font-size: 16px; }}")
@@ -89,7 +89,7 @@ class MediaPlayerWidget(BaseWidget):
         accent = self.get_prop("accent_color", "#4C8DFF")
         self.icon_label.set_color(accent if is_playing else "#777777")
         
-        self.play_pause_btn.setText("⏸" if is_playing else "▶")
+        self.play_pause_btn.setText("❚❚" if is_playing else "▶")
         
         title = e.attributes.get("media_title", "")
         artist = e.attributes.get("media_artist", "")

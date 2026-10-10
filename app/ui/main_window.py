@@ -13,9 +13,9 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QFileSystemWatcher, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QPixmap, QTouchEvent
+from PySide6.QtGui import QColor, QCursor, QMouseEvent, QPixmap, QTouchEvent
 from PySide6.QtWidgets import (
-    QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton,
+    QApplication, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton,
     QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
@@ -24,9 +24,11 @@ from app.core.settings import AppSettings
 from app.core.state_manager import StateManager
 from app.core.service_registry import ServiceRegistry
 from app.core.workflows import WorkflowEngine
+from app.apps.catalog import AppCatalog
 from app.plugins.manager import PluginManager
 from app.ui.dashboard import ConnectionBadge, DashboardCanvas
 from app.ui.app_launcher import AppLauncher
+from app.ui.app_store import AppStore
 from app.ui.editor import EditorScreen
 from app.ui.navigation import NavigationBar
 from app.ui.settings_screen import SettingsScreen
@@ -94,6 +96,7 @@ class DashboardView(QWidget):
         self.canvas = DashboardCanvas(state_manager, db, design_size)
         self.canvas.set_edit_mode(False)
         self.canvas.navigate_requested.connect(on_navigate_page)
+        self.canvas.page_swiped.connect(self._on_page_swiped)
         root.addWidget(self.canvas, 1)
 
         self.nav_bar = NavigationBar(style=settings.navigation_style)
@@ -107,6 +110,10 @@ class DashboardView(QWidget):
     def load_page(self, page_id: int) -> None:
         self.canvas.load_page(page_id)
         self.nav_bar.set_pages(self.db.list_pages(), page_id)
+
+    def _on_page_swiped(self, page_id: int) -> None:
+        if any(page.id == page_id for page in self.db.list_pages()):
+            self.nav_bar.set_pages(self.db.list_pages(), page_id)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -336,6 +343,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.stack)
 
         self._standby_state = "NORMAL"
+        self._touch_cursor_hidden = False
         self._saved_backlight: dict = {}
         # Backlight beim Start IMMER wieder an (max_brightness): Wenn der
         # Standby-OFF (Backlight 0) des letzten Laufs noch aktiv war (App-/
@@ -439,9 +447,14 @@ class MainWindow(QMainWindow):
         for w in (self.dashboard_view, self.editor_screen, settings_wrap):
             self.stack.addWidget(w)
         self.settings_wrap = settings_wrap
-        self.app_launcher = AppLauncher(self.plugin_manager, self._open_plugin_app)
+        self.app_catalog = AppCatalog(self.db, self.plugin_manager, self.state_manager)
+        self.app_launcher = AppLauncher(self.app_catalog, self._open_app)
         self.app_launcher.exit_requested.connect(lambda: self.stack.setCurrentWidget(self.dashboard_view))
         self.stack.addWidget(self.app_launcher)
+        self.app_store = AppStore(self.app_catalog)
+        self.app_launcher.store_requested.connect(lambda: self.stack.setCurrentWidget(self.app_store))
+        self.app_store.exit_requested.connect(lambda: self.stack.setCurrentWidget(self.app_launcher))
+        self.stack.addWidget(self.app_store)
         for i in range(self.stack.count()):
             self.stack.widget(i).setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
 
@@ -500,9 +513,10 @@ class MainWindow(QMainWindow):
     def _show_apps(self) -> None:
         self.stack.setCurrentWidget(self.app_launcher)
 
-    def _open_plugin_app(self, plugin_id: str) -> None:
-        view = self.plugin_manager.get_instance(plugin_id).create_app_view(self)
+    def _open_app(self, app_id: str) -> None:
+        view = self.app_catalog.create_view(app_id, self)
         if view is None:
+            self.app_launcher.refresh()
             return
         index = getattr(self, "_plugin_app_index", None)
         if index is not None:
@@ -539,10 +553,17 @@ class MainWindow(QMainWindow):
             icon_name = button.property("homepanelIconName")
             if icon_name:
                 button.setIcon(icon_qicon(str(icon_name), 40, icon_color))
+        self._applied_theme_json = _theme_json(theme)
+        dashboard = getattr(self, "dashboard_view", None)
+        if dashboard is not None and dashboard.canvas.current_page_id is not None \
+                and self.stack.currentWidget() is not self.editor_screen:
+            dashboard.load_page(dashboard.canvas.current_page_id)
 
     def _check_auto_theme(self) -> None:
+        before = _theme_json(self.theme_manager.active())
         self.theme_manager.check_auto_mode(self.app, self.db)
-        self._refresh_theme()
+        if _theme_json(self.theme_manager.active()) != before:
+            self._refresh_theme()
 
     def _reset_standby_timer(self) -> None:
         self._dim_timer.stop()
@@ -626,11 +647,32 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, obj, event) -> bool:
         t = event.type()
+        if t == QEvent.Type.TouchBegin:
+            self._hide_cursor_for_touch()
+        elif (
+            t == QEvent.Type.MouseMove
+            and self._touch_cursor_hidden
+            and isinstance(event, QMouseEvent)
+            and event.source() == Qt.MouseEventSource.MouseEventNotSynthesized
+        ):
+            self._restore_cursor_after_mouse()
         if t in (QEvent.Type.TouchBegin, QEvent.Type.MouseButtonPress,
                  QEvent.Type.MouseButtonDblClick, QEvent.Type.MouseMove,
                  QEvent.Type.Wheel, QEvent.Type.KeyPress):
             self._handle_input_event()
         return super().eventFilter(obj, event)
+
+    def _hide_cursor_for_touch(self) -> None:
+        if self._touch_cursor_hidden:
+            return
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.BlankCursor))
+        self._touch_cursor_hidden = True
+
+    def _restore_cursor_after_mouse(self) -> None:
+        if not self._touch_cursor_hidden:
+            return
+        QApplication.restoreOverrideCursor()
+        self._touch_cursor_hidden = False
 
     def _handle_input_event(self) -> None:
         # Re-Entrancy-Guard: Falls eine Aktion waehrend der Event-Zustellung
@@ -664,5 +706,6 @@ class MainWindow(QMainWindow):
             self.state_manager.stop()
         if hasattr(self, "db"):
             self.db.close()
+        self._restore_cursor_after_mouse()
         _backlight_set_state(False, self._saved_backlight)
         super().closeEvent(event)

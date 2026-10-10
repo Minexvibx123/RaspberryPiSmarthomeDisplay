@@ -20,13 +20,21 @@ Verzeichnis [`docs/`](docs/README.md):
 
 ## Features
 
+- Neues Design-System (`app/ui/design.py`): Palette + Stylesheet für alle Qt-Widgets,
+  automatische Kontrastprüfung (keine helle Schrift auf hellem Grund), Live-Wisch-
+  Übergang mit Parallax und Schatten.
+- 30 eingebaute Apps (Rechner, Timer, Notizen, Wetter, Nachrichten, Spiele,
+  Energie-/Batterie-/Sicherheitsübersicht u. a.) plus App-Store mit Katalog.
+- Apps aus fremden GitHub-Repositories installierbar (nur `https://github.com`,
+  installiert deaktiviert, nie automatisch ausgeführt).
 - Verbindung zu Home Assistant über REST + WebSocket (Live-Updates, Auto-Reconnect)
 - Demo-Modus mit simulierten Entities (kein Home Assistant nötig zum Testen)
 - Visueller Editor: Drag & Drop, Skalieren, Eigenschaftenpanel, Ebenen (z-Index),
   Duplizieren, Löschen, Rückgängig/Wiederholen, Raster/Snap
 - Editor: Copy/Paste (Ctrl+C/V), Multi-Select (Shift+Click), bedingte Sichtbarkeit
 - Buttons können mehrere Home-Assistant-Service-Aktionen nacheinander ausführen;
-  Service-Aufrufe blockieren die Oberfläche nicht.
+  Service-Aufrufe blockieren die Oberfläche nicht; Aktionsketten lassen sich
+  als Vorlagen speichern und in weiteren Buttons wiederverwenden.
 - Element-Bibliothek (44 Kern-Widget-Typen, Plugins registrieren weitere zur Laufzeit):
   - Steuerung: Button, Licht, Schalter, Slider, Thermostat, Rollladen, Medienplayer, Timer, Lüfter, Schloss, Luftbefeuchter, Alarmanlage, Saugroboter, Szenen-Grid, Zahlenwert, Auswahlliste
   - Anzeige: Sensor, Wetter (Home Assistant), Wetter (Open-Meteo, ohne API-Key), Uhr, Text, Icon, Entity-Liste, Kamera, Sensor-Verlauf, Kalender, To-Do-Liste, Person, Container, Benachrichtigungen, Energie und HA-Energiedashboard
@@ -37,7 +45,7 @@ Verzeichnis [`docs/`](docs/README.md):
 - Animation Engine: kurze, performante Fade/Slide/Pulse/Bounce/Shake/Glow-Effekte bei Eintritt und Zustandswechsel, konfigurierbar pro Widget
 - Bedingtes Styling: Hintergrund-/Textfarbe abhängig von Entity-Zustand ändern (equals/not_equals/greater_than/less_than/contains/online/offline/true/false)
 - Custom Widget Builder: eigene Widgets aus Text/Icon/Sensor-Wert/Fortschrittsbalken/Button zusammenstellen, ohne Python – sichere Textvorlagen wie `{{ state | round(1) }}`
-- Workflow-Engine (Grundgerüst): einfache WENN-Entity-Zustand-DANN-Aktion/Warten-Automationen, gespeichert in SQLite
+- Workflow-Editor: Entity-Zustand als Auslöser, geordnete Home-Assistant-Aktionen und Wartezeiten, mit Aktivieren/Deaktivieren und SQLite-Speicherung
 - Bedingte Sichtbarkeit: Widgets nur bei bestimmtem Entity-Zustand anzeigen (oder invertiert)
 - Hintergrundbilder und Farbverläufe (vertikal/horizontal/radial) pro Widget; eigene Hintergrundbilder pro Seite und eigene Bilder als Icons (Datei-Auswahl direkt im Editor)
 - COMMON_SCHEMA: Schriftart, Icon-Position, Innenabstand für jedes Widget
@@ -48,19 +56,22 @@ Verzeichnis [`docs/`](docs/README.md):
 - Themes (Aurora, Porcelain, Minimal, Dark Glass, Industrial, Modern) + Light/Dark/Auto
 - Icon-Packs: HomePanel Line, Font Awesome 6, Material Design Icons, Phosphor und Remix
 - Beliebig viele Seiten mit Bottom-Navigation oder Seitenleiste; Seiten im Editor löschen (mit Bestätigung, Schutz für die letzte Seite)
+- Im Dashboard horizontal wischen: links/rechts zur Nachbarseite mit animiertem Slide-Übergang; im Editor deaktiviert
 - Responsive Layout (skaliert auf jede Auflösung/Orientierung)
 - SQLite-Speicherung aller Seiten/Widgets/Themes/Vorlagen/Workflows/Einstellungen
 - Backup, Export/Import der Konfiguration über die UI (Geheimnisse wie Tokens/Sessions/Passwörter werden beim Export automatisch ausgeschlossen)
 - Einrichtungsassistent beim ersten Start
 - Editor-Modus per 3-Sekunden-Langdruck auf die obere linke Ecke, optional PIN-geschützt
 - Raspberry-Pi-5-Kiosk-Betrieb mit cage, Touch-Rotation und optionaler Browser-Ansicht per noVNC
+- Lokaler App-Store mit Installieren/Entfernen gebündelter Apps: Energie, Medien und Geräte
 - Plugin-System mit grafischer Verwaltung (aktivieren/deaktivieren/neu laden, Fehler werden isoliert angezeigt statt die App abstürzen zu lassen); mitgelieferte Plugins:
   - **System-Monitoring**: CPU/RAM/Speicher/Netzwerk sowie systemd-Dienste (Start/Stop/Neustart mit Bestätigung)
   - **Flashforge**: Live-Status/-Steuerung für Flashforge-3D-Drucker über das dokumentierte TCP-Protokoll (Port 8899) sowie eine **Drucker-Kamera** (MJPEG-Livestream, wird nur bei sichtbarem Widget gestartet)
   - **Pi-hole**: Statistiken und zeitlich begrenztes Deaktivieren der Blockierung über die Pi-hole-v6-API
-  - **Netzwerk**: Erreichbarkeit einzelner Geräte per Ping
+  - **Netzwerk**: Erreichbarkeit einzelner Geräte per Ping und manuelle Suche aktiver Hosts im privaten LAN (maximal `/24`, ohne Portscan)
   - **Docker**: Container-Liste, Start/Stop/Neustart (lokaler Docker-Socket)
   - **Browser**: interner Touch-Browser (optional, QtWebEngine) mit Bookmarks, öffnet sich innerhalb von HomePanel über den App-Launcher
+  - **Energie, Medien, Geräte**: eigenständige Touch-Apps für Energiedaten, HA-Mediaplayer und Entity-Übersicht
 - systemd-Service + Kiosk-Skript für Autostart auf dem Pi
 
 ## Projektstruktur
@@ -89,6 +100,8 @@ app/
 │   ├── properties.py            Dynamisches Eigenschaftenpanel (inkl. Builder-Aktionen)
 │   ├── custom_widget_builder.py  Dialog zum Zusammenstellen eigener Widgets
 │   ├── service_actions.py       Editor für geordnete HA-Service-Aktionen
+│   ├── app_store.py             Lokaler Store für gebündelte Plugin-Apps
+│   ├── workflow_editor.py       Verwaltung von Triggern, Aktionen und Wartezeiten
 │   ├── app_launcher.py           Touch-Launcher für Plugin-Apps (z. B. Browser)
 │   ├── element_library.py        Widget-Bibliothek + Entity-Picker
 │   ├── navigation.py              Bottom-/Sidebar-Navigation
