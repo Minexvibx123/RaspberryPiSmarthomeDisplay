@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -35,6 +36,16 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 app = QApplication(sys.argv)
 from app.ui.main_window import MainWindow  # noqa: E402  (needs QApplication first)
+from app.core.database import Database  # noqa: E402
+import app.ui.main_window as main_window_module  # noqa: E402
+
+test_dir = tempfile.TemporaryDirectory(prefix="homepanel_plugin_boot_")
+test_db_path = Path(test_dir.name) / "homepanel.db"
+test_db = Database(test_db_path)
+test_db.set_setting("setup_complete", True)
+test_db.set_setting("demo_mode", True)
+test_db.close()
+main_window_module.Database = lambda: Database(test_db_path)
 
 window = MainWindow(app)
 
@@ -123,6 +134,8 @@ check("Re-enable after restart", pm2.get_instance("example_plugin") is not None)
 
 # restore clean override state so the dev DB keeps the manifest default
 window.db.set_setting("plugin.enabled.example_plugin", None)
+window.close()
+test_dir.cleanup()
 
 print()
 if FAILURES:

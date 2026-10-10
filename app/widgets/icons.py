@@ -11,6 +11,79 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
 
+try:
+    import qtawesome as qta
+except ImportError:  # keep the built-in vector pack usable without optional fonts
+    qta = None
+
+ICON_PACKS = {
+    "homepanel": "HomePanel Line",
+    "fa6s": "Font Awesome 6 Solid",
+    "mdi6": "Material Design Icons",
+    "ph": "Phosphor",
+    "ri": "Remix Icons",
+}
+_ACTIVE_ICON_PACK = "mdi6"
+_ACTIVE_ICON_COLOR = "#F2F6F3"
+
+_ICON_ALIASES = {
+    "bulb": {"fa6s": "lightbulb", "mdi6": "lightbulb", "ph": "lightbulb", "ri": "lightbulb-flash-line"},
+    "power": {"fa6s": "power-off", "mdi6": "power", "ph": "power", "ri": "shut-down-line"},
+    "thermometer": {"fa6s": "temperature-half", "mdi6": "thermometer", "ph": "thermometer", "ri": "temp-hot-line"},
+    "gauge": {"fa6s": "gauge-high", "mdi6": "gauge", "ph": "gauge", "ri": "dashboard-3-line"},
+    "blinds": {"fa6s": "blinds", "mdi6": "blinds", "ph": "blinds", "ri": "blinds-line"},
+    "sun": {"fa6s": "sun", "mdi6": "weather-sunny", "ph": "sun", "ri": "sun-line"},
+    "cloud": {"fa6s": "cloud", "mdi6": "weather-cloudy", "ph": "cloud", "ri": "cloud-line"},
+    "rain": {"fa6s": "cloud-rain", "mdi6": "weather-rainy", "ph": "cloud-rain", "ri": "rainy-line"},
+    "snow": {"fa6s": "snowflake", "mdi6": "weather-snowy", "ph": "snowflake", "ri": "snowflake-line"},
+    "storm": {"fa6s": "cloud-bolt", "mdi6": "weather-lightning", "ph": "cloud-lightning", "ri": "thunderstorms-line"},
+    "night": {"fa6s": "moon", "mdi6": "weather-night", "ph": "moon", "ri": "moon-line"},
+    "clock": {"fa6s": "clock", "mdi6": "clock-outline", "ph": "clock", "ri": "time-line"},
+    "camera": {"fa6s": "camera", "mdi6": "camera", "ph": "camera", "ri": "camera-line"},
+    "chart": {"fa6s": "chart-line", "mdi6": "chart-line", "ph": "chart-line-up", "ri": "line-chart-line"},
+    "battery": {"fa6s": "battery-full", "mdi6": "battery", "ph": "battery-full", "ri": "battery-2-charge-line"},
+    "door": {"fa6s": "door-closed", "mdi6": "door", "ph": "door", "ri": "door-closed-line"},
+    "star": {"fa6s": "star", "mdi6": "star", "ph": "star", "ri": "star-line"},
+    "home": {"fa6s": "house", "mdi6": "home", "ph": "house", "ri": "home-5-line"},
+    "sofa": {"fa6s": "couch", "mdi6": "sofa", "ph": "couch", "ri": "sofa-line"},
+    "kitchen": {"fa6s": "utensils", "mdi6": "silverware-fork-knife", "ph": "fork-knife", "ri": "restaurant-line"},
+    "bed": {"fa6s": "bed", "mdi6": "bed", "ph": "bed", "ri": "hotel-bed-line"},
+    "flash": {"fa6s": "bolt", "mdi6": "flash", "ph": "lightning", "ri": "flashlight-line"},
+    "list": {"fa6s": "list", "mdi6": "format-list-bulleted", "ph": "list-bullets", "ri": "list-check-3"},
+    "gear": {"fa6s": "gear", "mdi6": "cog", "ph": "gear", "ri": "settings-3-line"},
+    "media": {"fa6s": "circle-play", "mdi6": "play-circle", "ph": "play-circle", "ri": "play-circle-line"},
+    "scene": {"fa6s": "clapperboard", "mdi6": "creation", "ph": "sparkle", "ri": "landscape-line"},
+    "drop": {"fa6s": "droplet", "mdi6": "water", "ph": "drop", "ri": "drop-line"},
+    "wind": {"fa6s": "wind", "mdi6": "weather-windy", "ph": "wind", "ri": "windy-line"},
+    "leaf": {"fa6s": "leaf", "mdi6": "leaf", "ph": "leaf", "ri": "leaf-line"},
+    "speaker": {"fa6s": "volume-high", "mdi6": "speaker", "ph": "speaker-high", "ri": "volume-up-line"},
+    "wifi": {"fa6s": "wifi", "mdi6": "wifi", "ph": "wifi-high", "ri": "wifi-line"},
+    "cpu": {"fa6s": "microchip", "mdi6": "cpu-64-bit", "ph": "cpu", "ri": "cpu-line"},
+    "calendar": {"fa6s": "calendar-days", "mdi6": "calendar", "ph": "calendar-dots", "ri": "calendar-line"},
+    "shield": {"fa6s": "shield-halved", "mdi6": "shield", "ph": "shield", "ri": "shield-line"},
+    "vacuum": {"fa6s": "robot", "mdi6": "robot-vacuum", "ph": "robot", "ri": "robot-line"},
+    "fan": {"fa6s": "fan", "mdi6": "fan", "ph": "fan", "ri": "windy-line"},
+    "lock": {"fa6s": "lock", "mdi6": "lock", "ph": "lock-key", "ri": "lock-line"},
+    "person": {"fa6s": "user", "mdi6": "account", "ph": "user", "ri": "user-line"},
+    "coin": {"fa6s": "coins", "mdi6": "cash-multiple", "ph": "coins", "ri": "coins-line"},
+    "quote": {"fa6s": "quote-left", "mdi6": "format-quote-open", "ph": "quotes", "ri": "quote-text"},
+    "smile": {"fa6s": "face-smile", "mdi6": "emoticon-happy", "ph": "smiley", "ri": "emotion-happy-line"},
+    "currency": {"fa6s": "dollar-sign", "mdi6": "currency-usd", "ph": "currency-dollar", "ri": "money-dollar-circle-line"},
+}
+
+
+def set_icon_pack(pack: str) -> str:
+    """Select a bundled icon font pack and return the active pack id."""
+    global _ACTIVE_ICON_PACK
+    _ACTIVE_ICON_PACK = pack if pack in ICON_PACKS else "homepanel"
+    return _ACTIVE_ICON_PACK
+
+
+def set_icon_color(color: str) -> None:
+    """Set the foreground used by interface icons without an explicit color."""
+    global _ACTIVE_ICON_COLOR
+    _ACTIVE_ICON_COLOR = color or "#F2F6F3"
+
 ICON_NAMES: list[str] = [
     "bulb", "power", "thermometer", "gauge", "blinds", "sun", "cloud", "rain",
     "snow", "storm", "night", "clock", "camera", "chart", "battery", "door",
@@ -289,7 +362,7 @@ def paint_icon(painter: QPainter, name: str, rect: QRectF, color: QColor) -> Non
     painter.restore()
 
 
-def icon_pixmap(name: str, size: int = 48, color: str = "#FFFFFF") -> QPixmap:
+def _vector_icon_pixmap(name: str, size: int, color: str) -> QPixmap:
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
@@ -298,8 +371,31 @@ def icon_pixmap(name: str, size: int = 48, color: str = "#FFFFFF") -> QPixmap:
     return pixmap
 
 
+def _qtawesome_icon(name: str, color: str) -> QIcon | None:
+    if _ACTIVE_ICON_PACK == "homepanel" or qta is None:
+        return None
+    glyph = _ICON_ALIASES.get(name, {}).get(_ACTIVE_ICON_PACK)
+    if not glyph:
+        return None
+    try:
+        return qta.icon(f"{_ACTIVE_ICON_PACK}.{glyph}", color=color)
+    except Exception:  # fall back when a bundled font lacks an icon alias
+        return None
+
+
+def icon_pixmap(name: str, size: int = 48, color: str = "#FFFFFF") -> QPixmap:
+    if color == "#FFFFFF":
+        color = _ACTIVE_ICON_COLOR
+    icon = _qtawesome_icon(name, color)
+    if icon:
+        return icon.pixmap(size, size)
+    return _vector_icon_pixmap(name, size, color)
+
+
 def icon_qicon(name: str, size: int = 48, color: str = "#FFFFFF") -> QIcon:
-    return QIcon(icon_pixmap(name, size, color))
+    if color == "#FFFFFF":
+        color = _ACTIVE_ICON_COLOR
+    return _qtawesome_icon(name, color) or QIcon(_vector_icon_pixmap(name, size, color))
 
 
 class IconGlyph(QWidget):
@@ -322,4 +418,6 @@ class IconGlyph(QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        paint_icon(painter, self.name, QRectF(0, 0, self.width(), self.height()), self.color)
+        icon_qicon(self.name, max(1, min(self.width(), self.height())), self.color.name()).paint(
+            painter, self.rect(),
+        )

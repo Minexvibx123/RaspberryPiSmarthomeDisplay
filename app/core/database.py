@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "homepanel.db"
+DB_SCHEMA_VERSION = 1
+CONFIG_FORMAT_VERSION = 1
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS pages (
@@ -140,7 +142,15 @@ class Database:
         self._conn.execute("PRAGMA busy_timeout = 5000")
         self._conn.executescript(SCHEMA)
         self._conn.commit()
-        self._migrate_pages()
+        schema_version = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        if schema_version > DB_SCHEMA_VERSION:
+            raise RuntimeError(
+                f"Datenbankversion {schema_version} ist neuer als unterstützt ({DB_SCHEMA_VERSION})"
+            )
+        if schema_version < 1:
+            self._migrate_pages()
+            self._conn.execute(f"PRAGMA user_version = {DB_SCHEMA_VERSION}")
+            self._conn.commit()
         self._ensure_defaults()
 
     # ------------------------------------------------------------------ #
@@ -157,11 +167,26 @@ class Database:
     def _ensure_defaults(self) -> None:
         if not self.list_pages():
             self.create_page("Home", icon="home")
-        if not self.list_themes():
-            from app.ui.themes import BUILT_IN_THEMES
+        from app.ui.themes import BUILT_IN_THEMES
 
-            for i, theme in enumerate(BUILT_IN_THEMES):
-                self.save_theme(theme["name"], theme, set_active=(i == 0), built_in=True)
+        existing_themes = {theme.name for theme in self.list_themes()}
+        for index, theme in enumerate(BUILT_IN_THEMES):
+            if theme["name"] not in existing_themes:
+                self.save_theme(
+                    theme["name"], theme,
+                    set_active=(not existing_themes and index == 0),
+                    built_in=True,
+                )
+
+        if not self.get_setting("visual_refresh_v1", False):
+            active_theme = self.get_active_theme()
+            if active_theme is None or active_theme.built_in:
+                aurora = self._conn.execute(
+                    "SELECT id FROM themes WHERE name = ?", ("Aurora",),
+                ).fetchone()
+                if aurora:
+                    self.set_active_theme(aurora["id"])
+            self.set_setting("visual_refresh_v1", True)
 
     # ------------------------------------------------------------------ #
     # pages
@@ -469,6 +494,7 @@ class Database:
                 continue
             settings[row["key"]] = json.loads(row["value"]) if row["value"] else None
         return {
+            "format_version": CONFIG_FORMAT_VERSION,
             "exported_at": time.time(),
             "pages": [p.__dict__ for p in self.list_pages()],
             "widgets": [w.__dict__ for w in [self._row_to_widget(r) for r in self._conn.execute("SELECT * FROM widgets")]],
@@ -479,27 +505,99 @@ class Database:
         }
 
     def import_config(self, data: dict, replace: bool = True) -> None:
-        if replace:
-            self._conn.execute("DELETE FROM widgets")
-            self._conn.execute("DELETE FROM pages")
+        if not isinstance(data, dict):
+            raise ValueError("Konfiguration muss ein JSON-Objekt sein")
+        version = int(data.get("format_version", 0))
+        if version > CONFIG_FORMAT_VERSION:
+            raise ValueError(f"Nicht unterstützte Konfigurationsversion: {version}")
+
+        pages = data.get("pages", [])
+        widgets = data.get("widgets", [])
+        themes = data.get("themes", [])
+        templates = data.get("templates", [])
+        workflows = data.get("workflows", [])
+        settings = data.get("settings", {})
+        if not all(isinstance(items, list) for items in (pages, widgets, themes, templates, workflows)):
+            raise ValueError("Seiten, Widgets, Themes, Vorlagen und Workflows müssen Listen sein")
+        if not isinstance(settings, dict):
+            raise ValueError("Settings müssen ein JSON-Objekt sein")
+        for page in pages:
+            if not isinstance(page, dict) or not isinstance(page.get("name"), str):
+                raise ValueError("Ungültiger Seiteneintrag")
+        for widget in widgets:
+            if not isinstance(widget, dict) or not isinstance(widget.get("config", {}), dict):
+                raise ValueError("Ungültiger Widget-Eintrag")
+        for collection, label in ((themes, "Theme"), (templates, "Vorlage"), (workflows, "Workflow")):
+            if any(not isinstance(item, dict) for item in collection):
+                raise ValueError(f"Ungültiger {label}-Eintrag")
+
         id_map: dict[int, int] = {}
-        for p in data.get("pages", []):
-            new_page = self.create_page(
-                p["name"], icon=p.get("icon", ""), order_index=p.get("order_index", 0),
-                bg_image_path=p.get("bg_image_path", ""), bg_fit=p.get("bg_fit", "cover"),
-            )
-            id_map[p["id"]] = new_page.id
-        for w in data.get("widgets", []):
-            page_id = id_map.get(w["page_id"], w["page_id"])
-            self.create_widget(page_id, w["type"], w["x"], w["y"], w["w"], w["h"], w.get("config", {}), z=w.get("z"))
-        for t in data.get("themes", []):
-            self.save_theme(t["name"], t["config"], set_active=t.get("is_active", False))
-        for t in data.get("templates", []):
-            self.save_template(t["name"], t["kind"], t.get("config", {}), t.get("type", ""), set_created_at=t.get("created_at"))
-        for wf in data.get("workflows", []):
-            self.save_workflow(wf["name"], wf.get("trigger_entity", ""), wf.get("trigger_state", ""), wf.get("steps", []), enabled=wf.get("enabled", True))
-        for k, v in data.get("settings", {}).items():
-            self.set_setting(k, v)
+        with self._conn:
+            if replace:
+                self._conn.execute("DELETE FROM widgets")
+                self._conn.execute("DELETE FROM pages")
+                self._conn.execute("DELETE FROM themes WHERE built_in = 0")
+                self._conn.execute("DELETE FROM templates")
+                self._conn.execute("DELETE FROM workflows")
+                for row in self._conn.execute("SELECT key FROM settings").fetchall():
+                    if not self._is_secret_key(row["key"]):
+                        self._conn.execute("DELETE FROM settings WHERE key = ?", (row["key"],))
+
+            for page in pages:
+                cur = self._conn.execute(
+                    "INSERT INTO pages (name, icon, order_index, bg_image_path, bg_fit) VALUES (?, ?, ?, ?, ?)",
+                    (page["name"], page.get("icon", ""), page.get("order_index", 0),
+                     page.get("bg_image_path", ""), page.get("bg_fit", "cover")),
+                )
+                if "id" in page:
+                    id_map[int(page["id"])] = int(cur.lastrowid)
+
+            for widget in widgets:
+                config = widget.get("config", {})
+                cur = self._conn.execute(
+                    "INSERT INTO widgets (page_id, type, x, y, w, h, z, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (id_map.get(int(widget["page_id"]), int(widget["page_id"])), widget["type"],
+                     widget["x"], widget["y"], widget["w"], widget["h"], widget.get("z", 0),
+                     json.dumps(config)),
+                )
+
+            active_theme_id = None
+            for theme in themes:
+                cur = self._conn.execute(
+                    "INSERT INTO themes (name, config, is_active, built_in) VALUES (?, ?, 0, ?) "
+                    "ON CONFLICT(name) DO UPDATE SET config = excluded.config",
+                    (theme["name"], json.dumps(theme.get("config", {})), int(bool(theme.get("built_in", False)))),
+                )
+                row = self._conn.execute("SELECT id FROM themes WHERE name = ?", (theme["name"],)).fetchone()
+                if theme.get("is_active"):
+                    active_theme_id = row["id"]
+            if active_theme_id is not None:
+                self._conn.execute("UPDATE themes SET is_active = 0")
+                self._conn.execute("UPDATE themes SET is_active = 1 WHERE id = ?", (active_theme_id,))
+
+            for template in templates:
+                self._conn.execute(
+                    "INSERT INTO templates (name, kind, type, config, created_at) VALUES (?, ?, ?, ?, ?) "
+                    "ON CONFLICT(name) DO UPDATE SET kind = excluded.kind, type = excluded.type, "
+                    "config = excluded.config, created_at = excluded.created_at",
+                    (template["name"], template["kind"], template.get("type", ""),
+                     json.dumps(template.get("config", {})), template.get("created_at", time.time())),
+                )
+
+            for workflow in workflows:
+                self._conn.execute(
+                    "INSERT INTO workflows (name, trigger_entity, trigger_state, steps, enabled) VALUES (?, ?, ?, ?, ?)",
+                    (workflow["name"], workflow.get("trigger_entity", ""),
+                     workflow.get("trigger_state", ""), json.dumps(workflow.get("steps", [])),
+                     int(bool(workflow.get("enabled", True)))),
+                )
+
+            for key, value in settings.items():
+                self._conn.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (key, json.dumps(value)),
+                )
 
     def close(self) -> None:
         self._conn.close()

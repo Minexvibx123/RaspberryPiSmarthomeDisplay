@@ -32,11 +32,39 @@ try:
     assert export_with_secrets["settings"].get("ha_token") == "super-secret-token"
 
     target = Database(root / "target.db")
+    target.set_setting("ha_token", "local-token")
+    target.save_template("Obsolete", "widget", {"old": True})
     target.import_config(export_without_secrets, replace=True)
-    assert target.get_setting("ha_token") is None
+    assert target.get_setting("ha_token") == "local-token"
     assert len(target.list_templates()) == 1
     assert len(target.list_workflows()) == 1
     assert target.list_workflows()[0].trigger_entity == "sensor.motion"
+    assert all(template.name != "Obsolete" for template in target.list_templates())
+
+    before_pages = [page.name for page in target.list_pages()]
+    before_templates = [template.name for template in target.list_templates()]
+    broken_import = dict(export_without_secrets)
+    broken_import["widgets"] = [{
+        "page_id": 999999, "type": "sensor", "x": 0, "y": 0,
+        "w": 100, "h": 100, "z": 0, "config": {},
+    }]
+    try:
+        target.import_config(broken_import, replace=True)
+    except Exception:
+        pass
+    else:
+        raise AssertionError("invalid import unexpectedly succeeded")
+    assert [page.name for page in target.list_pages()] == before_pages
+    assert [template.name for template in target.list_templates()] == before_templates
+    assert target.get_setting("ha_token") == "local-token"
+
+    unsupported = dict(export_without_secrets, format_version=999)
+    try:
+        target.import_config(unsupported, replace=True)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("unsupported config version unexpectedly succeeded")
 finally:
     shutil.rmtree(root, ignore_errors=True)
 

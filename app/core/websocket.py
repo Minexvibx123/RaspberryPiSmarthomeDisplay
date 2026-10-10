@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-import time
+from threading import Event, Lock
 from typing import Optional
 
 from PySide6.QtCore import QObject, QThread, Signal
@@ -28,6 +28,7 @@ class HomeAssistantWebSocket(QObject):
     disconnected = Signal(str)  # reason
     state_changed = Signal(str, dict)  # entity_id, new state dict
     connection_status = Signal(bool)
+    command_result = Signal(int, bool, object, str)
 
     def __init__(self, base_url: str, token: str):
         super().__init__()
@@ -43,12 +44,18 @@ class HomeAssistantWebSocket(QObject):
         self._thread.disconnected.connect(self.disconnected.emit)
         self._thread.state_changed.connect(self.state_changed.emit)
         self._thread.connection_status.connect(self.connection_status.emit)
+        self._thread.command_result.connect(self.command_result.emit)
         self._thread.start()
+
+    def send_command(self, command: dict) -> Optional[int]:
+        if not self._thread or not self._thread.isRunning():
+            return None
+        return self._thread.send_command(command)
 
     def stop(self) -> None:
         if self._thread:
             self._thread.stop()
-            self._thread.wait(3000)
+            self._thread.wait()
             self._thread = None
 
 
@@ -57,17 +64,20 @@ class _WebSocketThread(QThread):
     disconnected = Signal(str)
     state_changed = Signal(str, dict)
     connection_status = Signal(bool)
+    command_result = Signal(int, bool, object, str)
 
     def __init__(self, url: str, token: str):
         super().__init__()
         self.url = url
         self.token = token
-        self._stop_requested = False
+        self._stop_event = Event()
         self._ws: Optional[WebSocketApp] = None
-        self._msg_id = 1
+        self._msg_id = 0
+        self._send_lock = Lock()
+        self._authenticated = False
 
     def stop(self) -> None:
-        self._stop_requested = True
+        self._stop_event.set()
         if self._ws:
             try:
                 self._ws.close()
@@ -76,16 +86,17 @@ class _WebSocketThread(QThread):
 
     def run(self) -> None:
         delay = RECONNECT_MIN_DELAY
-        while not self._stop_requested:
+        while not self._stop_event.is_set():
             try:
                 self._run_once()
             except Exception:
                 logger.exception("WebSocket loop error")
-            if self._stop_requested:
+            if self._stop_event.is_set():
                 break
             self.connection_status.emit(False)
             self.disconnected.emit("reconnecting")
-            time.sleep(delay)
+            if self._stop_event.wait(delay):
+                break
             delay = min(delay * 2, RECONNECT_MAX_DELAY)
         logger.info("WebSocket thread stopped")
 
@@ -112,6 +123,7 @@ class _WebSocketThread(QThread):
         if msg_type == "auth_required":
             self._ws.send(json.dumps({"type": "auth", "access_token": self.token}))
         elif msg_type == "auth_ok":
+            self._authenticated = True
             self.connection_status.emit(True)
             self.connected.emit()
             self._subscribe()
@@ -124,13 +136,34 @@ class _WebSocketThread(QThread):
                 new_state = event["data"].get("new_state")
                 if new_state:
                     self.state_changed.emit(new_state["entity_id"], new_state)
+        elif msg_type == "result":
+            error = data.get("error", {})
+            error_message = error.get("message", "") if isinstance(error, dict) else str(error)
+            self.command_result.emit(
+                int(data.get("id", -1)), bool(data.get("success", False)),
+                data.get("result"), error_message,
+            )
 
     def _on_error(self, _ws, error) -> None:
         logger.warning("WebSocket error: %s", error)
 
     def _on_close(self, _ws, _status, _msg) -> None:
+        self._authenticated = False
         logger.info("WebSocket connection closed")
 
     def _subscribe(self) -> None:
-        self._msg_id += 1
-        self._ws.send(json.dumps({"id": self._msg_id, "type": "subscribe_events", "event_type": "state_changed"}))
+        self.send_command({"type": "subscribe_events", "event_type": "state_changed"})
+
+    def send_command(self, command: dict) -> Optional[int]:
+        with self._send_lock:
+            if not self._authenticated or not self._ws:
+                return None
+            self._msg_id += 1
+            message = dict(command)
+            message["id"] = self._msg_id
+            try:
+                self._ws.send(json.dumps(message))
+            except Exception:
+                logger.exception("Failed to send Home Assistant WebSocket command")
+                return None
+            return self._msg_id

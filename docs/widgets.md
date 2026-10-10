@@ -66,7 +66,7 @@ PropertyDef(key, label, type, default=None, options=None, min=None, max=None,
 **Neues Widget einbauen:** Klasse schreiben, in `registry.py` importieren und
 in `WIDGET_CLASSES` aufnehmen – sonst nichts.
 
-## Eingebaute Widget-Typen (43)
+## Eingebaute Widget-Typen (44)
 
 ### Steuerung
 | type_name | Anzeigename | Datei |
@@ -88,6 +88,14 @@ in `WIDGET_CLASSES` aufnehmen – sonst nichts.
 | `number_input` | Zahlenwert | `ha_extra.py` |
 | `select` | Auswahlliste | `ha_extra.py` |
 
+### Button-Service-Aktionen
+
+Das Button-Widget kann weiterhin einen einzelnen Service auslösen oder zu einer
+anderen Seite navigieren. Über **Service-Aktionen bearbeiten** lassen sich
+mehrere Aktionen mit Domain, Service, optionaler Entity-ID und JSON-Parametern
+konfigurieren. Sie laufen in der gespeicherten Reihenfolge im Hintergrund;
+schlägt ein Service fehl, wird die restliche Kette nicht ausgeführt.
+
 ### Anzeige
 | type_name | Anzeigename | Datei |
 |---|---|---|
@@ -105,6 +113,21 @@ in `WIDGET_CLASSES` aufnehmen – sonst nichts.
 | `person` | Person | `ha_extra.py` |
 | `notification` | Benachrichtigungen | `notification.py` |
 | `energy` | Energie | `energy.py` |
+| `energy_dashboard` | HA-Energiedashboard | `energy_dashboard.py` |
+
+### HA-Energiedashboard
+
+Das Widget `energy_dashboard` liest die Quellen aus Home Assistants
+Energiedashboard über `energy/get_prefs` und holt historische Werte über die
+Recorder-WebSocket-API (`recorder/statistics_during_period`). Es zeigt PV,
+berechneten Hausverbrauch, Netzbezug/-einspeisung sowie Batterie-Lade- und
+Entladeenergie für Heute, 7 Tage oder den laufenden Monat. Live-Leistung wird
+aus optional konfigurierten `stat_rate`-Sensoren angezeigt.
+
+Home Assistant muss das Energiedashboard eingerichtet haben und für die
+ausgewählten Quellen Langzeitstatistiken aufzeichnen. Ohne Quellen oder
+Statistikwerte zeigt das Widget einen Statushinweis; das bestehende einfache
+`energy`-Widget bleibt für manuell ausgewählte Live-Sensoren verfügbar.
 
 ### Internet
 | type_name | Anzeigename | Datei |

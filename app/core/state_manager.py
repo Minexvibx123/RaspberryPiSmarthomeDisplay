@@ -8,15 +8,56 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import time
 from typing import Optional
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
 
 from app.core.homeassistant import Entity, HomeAssistantClient
 from app.core.websocket import HomeAssistantWebSocket
 
 logger = logging.getLogger(__name__)
+
+
+class _HARequestSignals(QObject):
+    completed = Signal(str, str, bool, object, str, int)
+
+
+class _HARequest(QRunnable):
+    def __init__(self, client, request_id: str, operation: str, payload, revision: int):
+        super().__init__()
+        self.client = client
+        self.request_id = request_id
+        self.operation = operation
+        self.payload = payload
+        self.revision = revision
+        self.signals = _HARequestSignals()
+
+    def run(self) -> None:
+        try:
+            if self.operation in ("initial_states", "refresh_states"):
+                result = self.client.get_states()
+            else:
+                for action in self.payload:
+                    domain = str(action.get("domain", "")).strip()
+                    service = str(action.get("service", "")).strip()
+                    entity_id = str(action.get("entity_id", "")).strip() or None
+                    raw_data = action.get("data", {})
+                    if not re.fullmatch(r"[a-z0-9_]+", domain) or not re.fullmatch(r"[a-z0-9_]+", service):
+                        raise ValueError("Ungültige Domain oder ungültiger Service")
+                    if not isinstance(raw_data, dict):
+                        raise ValueError("Service-Parameter müssen ein JSON-Objekt sein")
+                    data = dict(raw_data)
+                    if entity_id:
+                        data.pop("entity_id", None)
+                    else:
+                        entity_id = data.pop("entity_id", None)
+                    self.client.call_service(domain, service, entity_id, **data)
+                result = None
+            self.signals.completed.emit(self.request_id, self.operation, True, result, "", self.revision)
+        except Exception as exc:  # noqa: BLE001 - report request failures to the UI thread
+            self.signals.completed.emit(self.request_id, self.operation, False, None, str(exc), self.revision)
 
 DEMO_ENTITIES: list[dict] = [
     {"entity_id": "light.wohnzimmer_deckenlampe", "state": "on", "attributes": {"friendly_name": "Deckenlampe", "area": "Wohnzimmer", "brightness": 200}},
@@ -55,6 +96,7 @@ class StateManager(QObject):
     entity_updated = Signal(str, dict)
     connection_status_changed = Signal(bool)
     entities_loaded = Signal()
+    service_actions_finished = Signal(str, bool, str)
 
     def __init__(self, settings):
         super().__init__()
@@ -65,7 +107,15 @@ class StateManager(QObject):
         self.connected: bool = False
         self.last_connected_at: Optional[float] = None
         self.demo_mode: bool = settings.demo_mode
-
+        self._stopped = False
+        self._state_revision = 0
+        self._entity_revisions: dict[str, int] = {}
+        self._request_number = 0
+        self._requests: dict[str, _HARequest] = {}
+        self._request_callbacks: dict[str, object] = {}
+        self._websocket_callbacks: dict[int, object] = {}
+        self._request_pool = QThreadPool(self)
+        self._request_pool.setMaxThreadCount(2)
         self._demo_timer: Optional[QTimer] = None
 
     # ------------------------------------------------------------------ #
@@ -73,63 +123,184 @@ class StateManager(QObject):
         if self.demo_mode or not self.settings.ha_url:
             self._start_demo()
             return
-        self.client = HomeAssistantClient(self.settings.ha_url, self.settings.ha_token)
-        try:
-            for e in self.client.get_states():
-                self.entities[e.entity_id] = e
-            self.entities_loaded.emit()
-        except Exception:
-            logger.warning("Initial REST fetch failed, will rely on websocket + retry")
-
-        self.ws = HomeAssistantWebSocket(self.settings.ha_url, self.settings.ha_token)
-        self.ws.connection_status.connect(self._on_connection_status)
-        self.ws.state_changed.connect(self._on_state_changed)
-        self.ws.start()
+        self.client = HomeAssistantClient(self.settings.ha_url, self.settings.ha_token, timeout=5.0)
+        self._submit_request("initial_states")
+        self._start_websocket()
 
     def stop(self) -> None:
+        self._stopped = True
         if self.ws:
             self.ws.stop()
         if self._demo_timer:
             self._demo_timer.stop()
+        self._request_pool.clear()
+        if not self._request_pool.waitForDone(5500):
+            logger.warning("Some Home Assistant requests did not stop before shutdown")
+        self._requests.clear()
+        self._request_callbacks.clear()
+        self._websocket_callbacks.clear()
 
     def get_entity(self, entity_id: str) -> Optional[Entity]:
         return self.entities.get(entity_id)
 
     def call_service(self, domain: str, service: str, entity_id: Optional[str] = None, **data) -> None:
-        if self.demo_mode:
-            self._simulate_service_call(domain, service, entity_id, **data)
-            return
-        if not self.client:
-            return
+        self.run_service_actions([{
+            "domain": domain, "service": service, "entity_id": entity_id, "data": data,
+        }])
+
+    def run_service_actions(self, actions: list[dict], on_finished=None) -> Optional[str]:
+        if self._stopped:
+            return None
         try:
-            self.client.call_service(domain, service, entity_id, **data)
-        except Exception:
-            logger.exception("call_service failed (offline?)")
+            actions = self._validate_actions(actions)
+        except ValueError as exc:
+            if on_finished:
+                on_finished(False, str(exc))
+            else:
+                logger.warning("Invalid Home Assistant service action: %s", exc)
+            return None
+        if not actions:
+            if on_finished:
+                on_finished(True, "")
+            return None
+        if self.demo_mode:
+            for action in actions:
+                data = dict(action["data"])
+                entity_id = action["entity_id"]
+                if entity_id:
+                    data.pop("entity_id", None)
+                else:
+                    entity_id = data.pop("entity_id", None)
+                self._simulate_service_call(
+                    action["domain"], action["service"], entity_id, **data,
+                )
+            if on_finished:
+                on_finished(True, "")
+            return "demo"
+        if not self.client:
+            if on_finished:
+                on_finished(False, "Home Assistant ist nicht verbunden")
+            return None
+        request_id = self._next_request_id()
+        if on_finished:
+            self._request_callbacks[request_id] = on_finished
+        self._submit_request("service_actions", list(actions), request_id=request_id)
+        return request_id
+
+    @staticmethod
+    def _validate_actions(actions: list[dict]) -> list[dict]:
+        if not isinstance(actions, list):
+            raise ValueError("Service-Aktionen müssen eine Liste sein")
+        validated = []
+        for index, action in enumerate(actions, start=1):
+            if not isinstance(action, dict):
+                raise ValueError(f"Aktion {index} ist ungültig")
+            domain = str(action.get("domain", "")).strip()
+            service = str(action.get("service", "")).strip()
+            entity_id = str(action.get("entity_id", "") or "").strip()
+            data = action.get("data", {})
+            if not re.fullmatch(r"[a-z0-9_]+", domain) or not re.fullmatch(r"[a-z0-9_]+", service):
+                raise ValueError(f"Aktion {index}: ungültige Domain oder ungültiger Service")
+            if not isinstance(data, dict):
+                raise ValueError(f"Aktion {index}: Service-Parameter müssen ein JSON-Objekt sein")
+            validated.append({
+                "domain": domain,
+                "service": service,
+                "entity_id": entity_id,
+                "data": dict(data),
+            })
+        return validated
 
     def seconds_since_last_connection(self) -> Optional[float]:
         if self.last_connected_at is None:
             return None
         return time.time() - self.last_connected_at
 
+    def send_websocket_command(self, command: dict, on_result=None) -> Optional[int]:
+        if not self.connected or not self.ws:
+            if on_result:
+                on_result(False, None, "Home Assistant ist nicht verbunden")
+            return None
+        request_id = self.ws.send_command(command)
+        if request_id is None:
+            if on_result:
+                on_result(False, None, "WebSocket-Befehl konnte nicht gesendet werden")
+            return None
+        if on_result:
+            self._websocket_callbacks[request_id] = on_result
+        return request_id
+
+    def cancel_websocket_command(self, request_id: int) -> None:
+        self._websocket_callbacks.pop(request_id, None)
+
     # ------------------------------------------------------------------ #
     def _on_connection_status(self, is_connected: bool) -> None:
         self.connected = is_connected
         if is_connected:
             self.last_connected_at = time.time()
-            # refresh full state on reconnect in case events were missed
-            try:
-                if self.client:
-                    for e in self.client.get_states():
-                        self.entities[e.entity_id] = e
-                    self.entities_loaded.emit()
-            except Exception:
-                logger.warning("Refresh after reconnect failed")
+            self._submit_request("refresh_states")
+        else:
+            for callback in self._websocket_callbacks.values():
+                callback(False, None, "Home-Assistant-Verbindung unterbrochen")
+            self._websocket_callbacks.clear()
         self.connection_status_changed.emit(is_connected)
 
+    def _start_websocket(self) -> None:
+        if self._stopped or self.ws is not None:
+            return
+        self.ws = HomeAssistantWebSocket(self.settings.ha_url, self.settings.ha_token)
+        self.ws.connection_status.connect(self._on_connection_status)
+        self.ws.state_changed.connect(self._on_state_changed)
+        self.ws.command_result.connect(self._on_websocket_command_result)
+        self.ws.start()
+
+    def _on_websocket_command_result(self, request_id: int, success: bool,
+                                     result, error: str) -> None:
+        callback = self._websocket_callbacks.pop(request_id, None)
+        if callback:
+            callback(success, result, error)
+
     def _on_state_changed(self, entity_id: str, new_state: dict) -> None:
+        self._state_revision += 1
+        self._entity_revisions[entity_id] = self._state_revision
         entity = Entity(entity_id, new_state.get("state", "unknown"), new_state.get("attributes", {}))
         self.entities[entity_id] = entity
         self.entity_updated.emit(entity_id, new_state)
+
+    def _next_request_id(self) -> str:
+        self._request_number += 1
+        return str(self._request_number)
+
+    def _submit_request(self, operation: str, payload=None, request_id: Optional[str] = None) -> None:
+        if self._stopped or not self.client:
+            return
+        request_id = request_id or self._next_request_id()
+        request = _HARequest(self.client, request_id, operation, payload, self._state_revision)
+        request.signals.completed.connect(self._on_request_completed)
+        self._requests[request_id] = request
+        self._request_pool.start(request)
+
+    def _on_request_completed(self, request_id: str, operation: str, success: bool,
+                              result, error: str, revision: int) -> None:
+        self._requests.pop(request_id, None)
+        if self._stopped:
+            return
+        if operation in ("initial_states", "refresh_states"):
+            if success:
+                for entity in result:
+                    if self._entity_revisions.get(entity.entity_id, 0) <= revision:
+                        self.entities[entity.entity_id] = entity
+                self.entities_loaded.emit()
+            else:
+                logger.warning("Home Assistant state refresh failed: %s", error)
+            return
+
+        if not success:
+            logger.warning("Home Assistant service action failed: %s", error)
+        self.service_actions_finished.emit(request_id, success, error)
+        callback = self._request_callbacks.pop(request_id, None)
+        if callback:
+            callback(success, error)
 
     # ------------------------------------------------------------------ #
     # demo mode: no Home Assistant required, entities update themselves

@@ -32,6 +32,7 @@ from app.ui.navigation import NavigationBar
 from app.ui.settings_screen import SettingsScreen
 from app.ui.setup_wizard import SetupWizard
 from app.ui.themes import ThemeManager
+from app.widgets.icons import IconGlyph, icon_qicon, set_icon_color, set_icon_pack
 
 EDIT_HOLD_MS = 3000
 CORNER_SIZE = 70
@@ -308,13 +309,15 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("HomePanel")
         self.db = Database()
         self.settings = AppSettings(self.db)
+        set_icon_pack(self.db.get_setting("icon_pack", "mdi6"))
         self.theme_manager = ThemeManager(self.db)
         self.theme_manager.apply(self.app, self.theme_manager.active())
 
         self.auto_check_timer = QTimer(self)
-        self.auto_check_timer.timeout.connect(lambda: self.theme_manager.check_auto_mode(self.app, self.db))
+        self.auto_check_timer.timeout.connect(self._check_auto_theme)
         self.auto_check_timer.start(300000)
         self.theme_manager.check_auto_mode(self.app, self.db)
+        set_icon_color(self.theme_manager.active().get("text", "#F2F6F3"))
 
         # Cross-Instanz-Sync: Display- und Browser-View (VNC) teilen dieselbe
         # SQLite-DB. Da im Normalbetrieb nie in die DB geschrieben wird,
@@ -424,6 +427,7 @@ class MainWindow(QMainWindow):
             self.db, self.settings, self.theme_manager, self.app,
             on_theme_applied=self._refresh_theme,
             plugin_manager=self.plugin_manager,
+            on_icon_pack_changed=self._apply_icon_pack,
         )
         self.settings_back_btn = QPushButton("\u2190 Zurück zum Panel")
         self.settings_back_btn.clicked.connect(lambda: self.stack.setCurrentWidget(self.dashboard_view))
@@ -443,6 +447,10 @@ class MainWindow(QMainWindow):
 
         self.dashboard_view.load_page(first_page_id)
         self.stack.setCurrentWidget(self.dashboard_view)
+
+    def _apply_icon_pack(self, pack_id: str) -> None:
+        set_icon_pack(pack_id)
+        self._refresh_theme()
 
     def _request_edit_mode(self) -> None:
         if self.settings.edit_pin:
@@ -476,6 +484,7 @@ class MainWindow(QMainWindow):
         theme_json = _theme_json(self.theme_manager.active())
         if theme_json and theme_json != self._applied_theme_json:
             self.theme_manager.apply(self.app, self.theme_manager.active())
+            self._refresh_theme()
             self._applied_theme_json = theme_json
         self._reset_standby_timer()
         page_ids = [p.id for p in self.db.list_pages()]
@@ -521,7 +530,19 @@ class MainWindow(QMainWindow):
                 return
 
     def _refresh_theme(self) -> None:
-        pass
+        theme = self.theme_manager.active()
+        icon_color = theme.get("text", "#F2F6F3")
+        set_icon_color(icon_color)
+        for glyph in self.findChildren(IconGlyph):
+            glyph.update()
+        for button in self.findChildren(QPushButton):
+            icon_name = button.property("homepanelIconName")
+            if icon_name:
+                button.setIcon(icon_qicon(str(icon_name), 40, icon_color))
+
+    def _check_auto_theme(self) -> None:
+        self.theme_manager.check_auto_mode(self.app, self.db)
+        self._refresh_theme()
 
     def _reset_standby_timer(self) -> None:
         self._dim_timer.stop()
@@ -635,7 +656,13 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
 
     def closeEvent(self, event) -> None:
+        if hasattr(self, "workflow_engine"):
+            self.workflow_engine.stop()
+        if hasattr(self, "plugin_manager"):
+            self.plugin_manager.unload_all()
         if hasattr(self, "state_manager"):
             self.state_manager.stop()
+        if hasattr(self, "db"):
+            self.db.close()
         _backlight_set_state(False, self._saved_backlight)
         super().closeEvent(event)

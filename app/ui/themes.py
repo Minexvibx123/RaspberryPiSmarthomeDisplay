@@ -7,8 +7,48 @@ instantly re-skins every screen without touching widget code.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.core.database import Database
 
 BUILT_IN_THEMES: list[dict] = [
+    {
+        "name": "Aurora",
+        "mode": "dark",
+        "background": "#111817",
+        "surface": "#1C2724",
+        "primary": "#72D6B5",
+        "secondary": "#93B8CA",
+        "accent": "#F0B85B",
+        "text": "#F2F6F3",
+        "text_secondary": "#A8BBB2",
+        "card_radius": 12,
+        "card_opacity": 98,
+        "shadow": True,
+        "border": True,
+        "font_family": "Noto Sans, DejaVu Sans, sans-serif",
+        "font_size_base": 16,
+        "spacing": 12,
+    },
+    {
+        "name": "Porcelain",
+        "mode": "light",
+        "background": "#EEF2ED",
+        "surface": "#FFFFFF",
+        "primary": "#276B57",
+        "secondary": "#B86750",
+        "accent": "#C38B35",
+        "text": "#1D2A25",
+        "text_secondary": "#5C6C64",
+        "card_radius": 10,
+        "card_opacity": 100,
+        "shadow": False,
+        "border": True,
+        "font_family": "Noto Sans, DejaVu Sans, sans-serif",
+        "font_size_base": 16,
+        "spacing": 12,
+    },
     {
         "name": "Dark Glass",
         "mode": "dark",
@@ -88,47 +128,92 @@ def build_stylesheet(theme: dict) -> str:
     bg = theme.get("background", "#101218")
     surface = theme.get("surface", "#1B1E29")
     primary = theme.get("primary", "#4C8DFF")
+    secondary = theme.get("secondary", "#8A7CFF")
+    accent = theme.get("accent", "#33D9B2")
     text = theme.get("text", "#FFFFFF")
     text_secondary = theme.get("text_secondary", "#9AA1B4")
     font_family = theme.get("font_family", "Inter, sans-serif")
     font_size = theme.get("font_size_base", 16)
+    radius = max(4, min(int(theme.get("card_radius", 12)), 20))
+    border = "rgba(255,255,255,24)" if theme.get("mode") == "dark" else "rgba(20,40,32,34)"
+    muted = "rgba(255,255,255,28)" if theme.get("mode") == "dark" else "rgba(20,40,32,24)"
     return f"""
-    QMainWindow, QWidget#appRoot {{
+    QMainWindow, QDialog {{
         background-color: {bg};
         color: {text};
         font-family: {font_family};
         font-size: {font_size}px;
     }}
+    QWidget {{
+        color: {text};
+        font-family: {font_family};
+        font-size: {font_size}px;
+        selection-background-color: {primary};
+    }}
     QLabel {{ color: {text}; background: transparent; }}
+    QGroupBox {{
+        background-color: {surface};
+        border: 1px solid {border};
+        border-radius: {radius}px;
+        margin-top: 14px;
+        padding: 18px 12px 10px 12px;
+        font-weight: 600;
+    }}
+    QGroupBox::title {{
+        subcontrol-origin: margin;
+        left: 12px;
+        padding: 0 5px;
+        color: {text_secondary};
+    }}
     QPushButton {{
         background-color: {surface};
         color: {text};
-        border-radius: 12px;
-        padding: 10px 16px;
-        border: 1px solid rgba(255,255,255,20);
+        border-radius: 10px;
+        min-height: 38px;
+        padding: 6px 14px;
+        border: 1px solid {border};
     }}
-    QPushButton:hover {{ background-color: {primary}; }}
-    QPushButton:pressed {{ background-color: {primary}; }}
-    QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
+    QPushButton:hover {{ border: 1px solid {primary}; background-color: {secondary}; }}
+    QPushButton:pressed, QPushButton:checked {{ background-color: {primary}; color: {bg}; }}
+    QPushButton:disabled {{ color: {text_secondary}; background-color: {bg}; }}
+    QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTimeEdit {{
         background-color: {surface};
         color: {text};
         border-radius: 8px;
-        padding: 8px;
-        border: 1px solid rgba(255,255,255,30);
+        min-height: 32px;
+        padding: 4px 9px;
+        border: 1px solid {border};
     }}
+    QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: 2px solid {primary}; }}
+    QComboBox QAbstractItemView {{ background-color: {surface}; color: {text}; selection-background-color: {primary}; }}
+    QCheckBox {{ spacing: 10px; }}
+    QCheckBox::indicator {{ width: 22px; height: 22px; border-radius: 6px; border: 1px solid {text_secondary}; background: {surface}; }}
+    QCheckBox::indicator:checked {{ background: {primary}; border-color: {primary}; }}
+    QTabWidget::pane {{ border: 1px solid {border}; border-radius: {radius}px; top: -1px; background: {bg}; }}
+    QTabBar::tab {{ color: {text_secondary}; background: {surface}; border: 1px solid {border}; border-bottom: none; border-radius: 8px 8px 0 0; padding: 10px 16px; min-height: 30px; }}
+    QTabBar::tab:selected {{ color: {text}; background: {bg}; border-top: 3px solid {primary}; }}
+    QTabBar::tab:hover:!selected {{ color: {text}; background: {secondary}; }}
+    QListWidget, QTreeWidget, QTableWidget {{ background: {surface}; border: 1px solid {border}; border-radius: 8px; outline: none; }}
+    QListWidget::item {{ min-height: 34px; padding: 4px 8px; border-radius: 6px; }}
+    QListWidget::item:selected {{ background: {primary}; color: {bg}; }}
     QScrollArea {{ border: none; background: transparent; }}
+    QScrollBar:vertical {{ width: 10px; background: transparent; margin: 2px; }}
+    QScrollBar::handle:vertical {{ background: {muted}; border-radius: 5px; min-height: 28px; }}
+    QScrollBar::handle:vertical:hover {{ background: {primary}; }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
     QSlider::groove:horizontal {{
-        height: 6px; background: rgba(255,255,255,30); border-radius: 3px;
+        height: 6px; background: {muted}; border-radius: 3px;
     }}
     QSlider::handle:horizontal {{
-        background: {primary}; width: 22px; height: 22px; margin: -8px 0; border-radius: 11px;
+        background: {primary}; width: 22px; height: 22px; margin: -8px 0; border-radius: 11px; border: 2px solid {surface};
     }}
-    QToolTip {{ color: {text}; background-color: {surface}; border: 1px solid {primary}; }}
-    #connectionBadgeOk {{ color: #33D9B2; font-weight: 600; }}
-    #connectionBadgeBad {{ color: #FF5C5C; font-weight: 600; }}
-    #navBar {{ background-color: {surface}; border-top: 1px solid rgba(255,255,255,15); }}
-    #navButton {{ color: {text_secondary}; border: none; background: transparent; font-size: 13px; }}
-    #navButtonActive {{ color: {primary}; border: none; background: transparent; font-weight: 700; font-size: 13px; }}
+    QToolTip {{ color: {text}; background-color: {surface}; border: 1px solid {primary}; border-radius: 6px; padding: 5px 8px; }}
+    #connectionBadgeOk {{ color: {accent}; font-weight: 700; }}
+    #connectionBadgeBad {{ color: #F07868; font-weight: 700; }}
+    #navBar {{ background-color: {surface}; border-top: 1px solid {border}; }}
+    #navButton {{ color: {text_secondary}; border: 1px solid transparent; background: transparent; font-size: 13px; }}
+    #navButton:hover {{ color: {text}; background: {bg}; border: 1px solid {border}; }}
+    #navButtonActive {{ color: {primary}; border: 1px solid {border}; background: {bg}; font-weight: 700; font-size: 13px; }}
     """
 
 

@@ -15,6 +15,7 @@ from app.widgets.container import ContainerWidget
 from app.widgets.cover import CoverWidget
 from app.widgets.custom_widget import CustomWidget
 from app.widgets.energy import EnergyWidget
+from app.widgets.energy_dashboard import EnergyDashboardWidget
 from app.widgets.entity_list import EntityListWidget
 from app.widgets.ha_extra import (
     AlarmPanelWidget, CalendarWidget, FanWidget, HumidifierWidget, LockWidget,
@@ -54,7 +55,7 @@ WIDGET_CLASSES: list[type[BaseWidget]] = [
     NewsWidget,
     CameraWidget, ContainerWidget, MediaPlayerWidget, NotificationWidget,
     SensorGraphWidget, TimerWidget,
-    ConsoleWidget, EnergyWidget,
+    ConsoleWidget, EnergyWidget, EnergyDashboardWidget,
     WebWidget,
     CustomWidget,
 ]

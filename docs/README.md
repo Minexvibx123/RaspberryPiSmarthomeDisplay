@@ -24,14 +24,12 @@ installieren und pflegen.
   Kiosk (cage), Rotation, Update-Strategie.
 - **[Skripte](scripts.md)** – Alle Skripte unter `scripts/` (Installation,
   GitHub-Deployment, Diagnose, Verifikation) inkl. Verwendung.
-- **[Feature-Ausbau & Architektur-Plan](HomePanel%20%E2%80%93%20Major%20Feature%20Expansion%20%26%20Architecture%20Upgrade.md)**
-  – Historische Planungs-/Ausbauvorlage (Phasen 1–5), Grundlage der Umsetzung.
 
 ## Weitere Wissensbasis
 
 - [`README.md`](../README.md) – Benutzerorientierte Projektübersicht (Deutsch).
-- Hardware-Bringup-Notizen (Pi-5/DSI2/cage) sind aus dem Repository entfernt;
-  wichtige Fallstricke sind in [`deployment.md`](deployment.md) dokumentiert.
+- Kiosk-, DSI-, Touch- und Backlight-Betriebshinweise stehen in
+  [`deployment.md`](deployment.md) und [`scripts.md`](scripts.md).
 
 ## Kurzübersicht der Verzeichnisse
 
@@ -43,6 +41,6 @@ installieren und pflegen.
 | `app/widgets/` | Eingebaute Widget-Klassen + Registry |
 | `app/plugins/` | Plugin-Kern (API, Discovery, Manager) |
 | `plugins/` | Echte Plugin-Integrationen (7 Stück) |
-| `scripts/` | Installs-, Update-, Diagnose- und Verifikationsskripte |
-| `systemd/` | systemd-Unit für den Kiosk-Autostart |
+| `scripts/` | Installations-, Kiosk-, Touch-, Update-, Diagnose- und Verifikationsskripte |
+| `systemd/` | Units für Panel, Touch-Hilfe und Browser-VNC |
 | `data/` | Laufzeitdaten (SQLite: `homepanel.db`), wird nicht versioniert |

@@ -30,6 +30,10 @@ YAML/JSON-Konfiguration** – alles wird direkt auf dem Touchscreen bearbeitet.
   Vorlagen, Workflows und Settings liegen in `data/homepanel.db`
   (`app/core/database.py`). Widget- und Theme-Konfigurationen sind JSON-Blobs,
   dadurch brauchen neue Eigenschaften **nie** eine DB-Migration.
+- Display- und optionale Browser-/VNC-Instanz verwenden dieselbe SQLite-Datei.
+  `busy_timeout` puffert kurze Schreibkonflikte; `QFileSystemWatcher` erkennt
+  Änderungen und übernimmt Seiten, Theme und Standby-Einstellungen mit
+  kurzem Debounce in der jeweils anderen Instanz.
 - **State-Manager als zentrale Entity-Zentrale.** Widgets sprechen nie direkt
   mit Home Assistant, sondern immer über `StateManager` (`app/core/state_manager.py`).
   Dadurch bleibt das Panel auch bei Ausfällen reaktiv (letzter bekannter
@@ -90,6 +94,7 @@ AppSettings (app/core/settings.py)          ← typisierter Settings-Zugriff
 |---|---|---|
 | `core/http_fetch.py` | eigener kurzlebiger `QThread` pro Request | Callback auf Qt-Main-Thread (geguarded) |
 | `core/websocket.py` | ein `QThread` mit Auto-Reconnect | Qt-Signale |
+| `core/state_manager.py` | `QThreadPool` (max. 2 Worker) für REST-Refresh und Service-Aktionsketten | Qt-Signals mit Request-ID/Ergebnis |
 | Plugins (`flashforge`, `pihole`, `docker`, `network`, `system_monitor`) | je Widget ein `_Job`-`QThread` | Qt-Signale |
 | Flashforge-Kamera | `_MjpegReader` (`QThread`) parst MJPEG-Stream | Signal `frame_ready` (Bytes → QPixmap) |
 

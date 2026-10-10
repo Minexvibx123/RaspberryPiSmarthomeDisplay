@@ -25,9 +25,11 @@ Verzeichnis [`docs/`](docs/README.md):
 - Visueller Editor: Drag & Drop, Skalieren, Eigenschaftenpanel, Ebenen (z-Index),
   Duplizieren, Löschen, Rückgängig/Wiederholen, Raster/Snap
 - Editor: Copy/Paste (Ctrl+C/V), Multi-Select (Shift+Click), bedingte Sichtbarkeit
-- Element-Bibliothek (43 Kern-Widget-Typen, Plugins registrieren weitere zur Laufzeit):
+- Buttons können mehrere Home-Assistant-Service-Aktionen nacheinander ausführen;
+  Service-Aufrufe blockieren die Oberfläche nicht.
+- Element-Bibliothek (44 Kern-Widget-Typen, Plugins registrieren weitere zur Laufzeit):
   - Steuerung: Button, Licht, Schalter, Slider, Thermostat, Rollladen, Medienplayer, Timer, Lüfter, Schloss, Luftbefeuchter, Alarmanlage, Saugroboter, Szenen-Grid, Zahlenwert, Auswahlliste
-  - Anzeige: Sensor, Wetter (Home Assistant), Wetter (Open-Meteo, ohne API-Key), Uhr, Text, Icon, Entity-Liste, Kamera, Sensor-Verlauf, Kalender, To-Do-Liste, Person, Container, Benachrichtigungen, Energie
+  - Anzeige: Sensor, Wetter (Home Assistant), Wetter (Open-Meteo, ohne API-Key), Uhr, Text, Icon, Entity-Liste, Kamera, Sensor-Verlauf, Kalender, To-Do-Liste, Person, Container, Benachrichtigungen, Energie und HA-Energiedashboard
   - Internet: Kryptokurs, Aktienkurs, Wechselkurs, Zitat, Witz, Feiertag, Internet-Status, News-Feed
   - System: System-Monitor, Konsole
   - Apps: Web-Panel (optional, QtWebEngine mit sicherem Fallback ohne Absturz)
@@ -43,13 +45,15 @@ Verzeichnis [`docs/`](docs/README.md):
 - Zweistufiger Standby nach Inaktivität: Abdunkeln nach 2 Min., Display aus nach 5 Min. (Zeiten und Abdunkel-Stärke in den Einstellungen; Aufwecken per Berührung)
 - Screensaver-Modus wählbar: digitale Uhr oder Systeminformationen (CPU/RAM/Temperatur), optional mit eigenem Hintergrundbild
 - Raum-basierte Entity-Auswahl (keine manuelle Entity-ID nötig)
-- Themes (4 Presets: Minimal, Dark Glass, Industrial, Modern) + Light/Dark/Auto
+- Themes (Aurora, Porcelain, Minimal, Dark Glass, Industrial, Modern) + Light/Dark/Auto
+- Icon-Packs: HomePanel Line, Font Awesome 6, Material Design Icons, Phosphor und Remix
 - Beliebig viele Seiten mit Bottom-Navigation oder Seitenleiste; Seiten im Editor löschen (mit Bestätigung, Schutz für die letzte Seite)
 - Responsive Layout (skaliert auf jede Auflösung/Orientierung)
 - SQLite-Speicherung aller Seiten/Widgets/Themes/Vorlagen/Workflows/Einstellungen
 - Backup, Export/Import der Konfiguration über die UI (Geheimnisse wie Tokens/Sessions/Passwörter werden beim Export automatisch ausgeschlossen)
 - Einrichtungsassistent beim ersten Start
 - Editor-Modus per 3-Sekunden-Langdruck auf die obere linke Ecke, optional PIN-geschützt
+- Raspberry-Pi-5-Kiosk-Betrieb mit cage, Touch-Rotation und optionaler Browser-Ansicht per noVNC
 - Plugin-System mit grafischer Verwaltung (aktivieren/deaktivieren/neu laden, Fehler werden isoliert angezeigt statt die App abstürzen zu lassen); mitgelieferte Plugins:
   - **System-Monitoring**: CPU/RAM/Speicher/Netzwerk sowie systemd-Dienste (Start/Stop/Neustart mit Bestätigung)
   - **Flashforge**: Live-Status/-Steuerung für Flashforge-3D-Drucker über das dokumentierte TCP-Protokoll (Port 8899) sowie eine **Drucker-Kamera** (MJPEG-Livestream, wird nur bei sichtbarem Widget gestartet)
@@ -84,6 +88,7 @@ app/
 │   ├── editor.py               Editor-Werkzeugleiste, Undo/Redo, Vorlagen, Speichern/Abbrechen
 │   ├── properties.py            Dynamisches Eigenschaftenpanel (inkl. Builder-Aktionen)
 │   ├── custom_widget_builder.py  Dialog zum Zusammenstellen eigener Widgets
+│   ├── service_actions.py       Editor für geordnete HA-Service-Aktionen
 │   ├── app_launcher.py           Touch-Launcher für Plugin-Apps (z. B. Browser)
 │   ├── element_library.py        Widget-Bibliothek + Entity-Picker
 │   ├── navigation.py              Bottom-/Sidebar-Navigation
@@ -94,7 +99,8 @@ app/
     ├── base.py               Basisklasse + Property-Schema-System (inkl. Animation/Styling-Felder)
     ├── button.py, light.py, switch.py, sensor.py, thermostat.py,
     │   slider.py, cover.py, weather.py, weather_api.py, clock.py, text.py,
-    │   icon_widget.py, entity_list.py, console.py, energy.py, web.py
+    │   icon_widget.py, entity_list.py, console.py, energy.py,
+    │   energy_dashboard.py, web.py
     ├── custom_widget.py      Eigenes Widget (Custom Widget Builder Rendering)
     └── registry.py           Widget-Typ-Registry (Plugin-Seam)
 
@@ -110,10 +116,10 @@ plugins/                      Echte Integrationen, siehe Feature-Liste oben
 docs/                         Ausführliche Dokumentation (Architektur, Core,
                               UI, Widgets, Plugin-Entwicklung, Deployment)
 
-scripts/                      Installations-, Aktualisierungs-, Diagnose- und
-                              Verifikations-Skripte (siehe docs/scripts.md)
+scripts/                      Installations-, Kiosk-, Aktualisierungs-, Diagnose-
+                              und Verifikations-Skripte (siehe docs/scripts.md)
 
-systemd/                      systemd-Unit-Vorlage für den Kiosk-Autostart
+systemd/                      Units für Panel, Touch-Hilfe und Browser-VNC
 ```
 
 ## Entwicklung / Ausführen

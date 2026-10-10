@@ -17,10 +17,12 @@ from PySide6.QtWidgets import (
 
 from app.core.homeassistant import HomeAssistantClient
 from app.ui.themes import BUILT_IN_THEMES, build_stylesheet
+from app.widgets.icons import ICON_PACKS
 
 
 class SettingsScreen(QWidget):
-    def __init__(self, db, settings, theme_manager, app, on_theme_applied=None, parent=None, plugin_manager=None):
+    def __init__(self, db, settings, theme_manager, app, on_theme_applied=None,
+                 parent=None, plugin_manager=None, on_icon_pack_changed=None):
         super().__init__(parent)
         self.db = db
         self.settings = settings
@@ -28,6 +30,7 @@ class SettingsScreen(QWidget):
         self.app = app
         self.on_theme_applied = on_theme_applied
         self.plugin_manager = plugin_manager
+        self.on_icon_pack_changed = on_icon_pack_changed
 
         root = QVBoxLayout(self)
         title = QLabel("Einstellungen")
@@ -330,8 +333,27 @@ class SettingsScreen(QWidget):
         mode_combo.currentTextChanged.connect(lambda t: setattr(self.settings, "theme_mode", t))
         mode_row.addWidget(mode_combo)
         v.addLayout(mode_row)
+
+        icon_row = QHBoxLayout()
+        icon_row.addWidget(QLabel("Icon-Pack"))
+        self.icon_pack_combo = QComboBox()
+        for pack_id, pack_name in ICON_PACKS.items():
+            self.icon_pack_combo.addItem(pack_name, pack_id)
+        current_pack = self.db.get_setting("icon_pack", "mdi6")
+        pack_index = self.icon_pack_combo.findData(current_pack)
+        self.icon_pack_combo.setCurrentIndex(max(0, pack_index))
+        self.icon_pack_combo.currentIndexChanged.connect(
+            lambda index: self._save_icon_pack(self.icon_pack_combo.itemData(index))
+        )
+        icon_row.addWidget(self.icon_pack_combo, 1)
+        v.addLayout(icon_row)
         v.addStretch()
         return w
+
+    def _save_icon_pack(self, pack_id: str) -> None:
+        self.db.set_setting("icon_pack", pack_id)
+        if self.on_icon_pack_changed:
+            self.on_icon_pack_changed(pack_id)
 
     def _edit_theme(self) -> None:
         config = dict(self.theme_manager.active())

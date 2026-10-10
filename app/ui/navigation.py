@@ -48,7 +48,9 @@ class NavigationBar(QWidget):
         self._active_id = active_id
         for page in pages:
             btn = QPushButton(f"  {page.name}")
-            btn.setIcon(icon_qicon(page.icon or PAGE_ICON_FALLBACK, 32, "#FFFFFF"))
+            icon_name = page.icon or PAGE_ICON_FALLBACK
+            btn.setProperty("homepanelIconName", icon_name)
+            btn.setIcon(icon_qicon(icon_name, 32, "#FFFFFF"))
             btn.setIconSize(QSize(22, 22))
             btn.setObjectName("navButtonActive" if page.id == active_id else "navButton")
             btn.setFlat(True)

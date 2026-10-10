@@ -249,6 +249,11 @@ class PropertiesPanel(QWidget):
         if prop.action == "custom_widget_elements":
             from app.ui.custom_widget_builder import open_custom_widget_builder
             open_custom_widget_builder(self, instance)
+        elif prop.action == "service_actions":
+            from app.ui.service_actions import ServiceActionsDialog
+            dialog = ServiceActionsDialog(instance.get_prop("service_actions", []), self)
+            if dialog.exec():
+                self._update("service_actions", dialog.actions())
 
     def _update(self, key: str, value) -> None:
         if not self.widget_instance or not self.db:

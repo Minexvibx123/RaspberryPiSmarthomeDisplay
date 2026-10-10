@@ -20,9 +20,19 @@ class WorkflowEngine(QObject):
         super().__init__(parent)
         self.db = db
         self.state_manager = state_manager
+        self._stopped = False
         state_manager.entity_updated.connect(self._on_entity_updated)
 
+    def stop(self) -> None:
+        self._stopped = True
+        try:
+            self.state_manager.entity_updated.disconnect(self._on_entity_updated)
+        except (RuntimeError, TypeError):
+            pass
+
     def _on_entity_updated(self, entity_id: str, new_state: dict) -> None:
+        if self._stopped:
+            return
         for workflow in self.db.list_workflows(enabled_only=True):
             if workflow.trigger_entity == entity_id and str(new_state.get("state")) == workflow.trigger_state:
                 self._run(workflow.steps)
@@ -31,7 +41,7 @@ class WorkflowEngine(QObject):
         self._run_step(steps, 0)
 
     def _run_step(self, steps: list, index: int) -> None:
-        if index >= len(steps):
+        if self._stopped or index >= len(steps):
             return
         step = steps[index]
         kind = step.get("kind")
@@ -40,11 +50,26 @@ class WorkflowEngine(QObject):
             QTimer.singleShot(max(0, int(seconds * 1000)), lambda: self._run_step(steps, index + 1))
             return
         if kind == "action":
-            try:
-                self.state_manager.call_service(
-                    step.get("domain", ""), step.get("service", ""),
-                    entity_id=step.get("entity_id") or None, **step.get("data", {}),
-                )
-            except Exception:  # noqa: BLE001 - a broken workflow step must never crash the panel
-                logger.exception("Workflow step failed: %s", step)
+            action = {
+                "domain": step.get("domain", ""),
+                "service": step.get("service", ""),
+                "entity_id": step.get("entity_id") or None,
+                "data": step.get("data", {}),
+            }
+            self.state_manager.run_service_actions(
+                [action],
+                on_finished=lambda success, error: self._continue_after_action(
+                    steps, index, success, error, action,
+                ),
+            )
+            return
+        self._run_step(steps, index + 1)
+
+    def _continue_after_action(self, steps: list, index: int, success: bool,
+                               error: str, action: dict) -> None:
+        if self._stopped:
+            return
+        if not success:
+            logger.warning("Workflow step failed (%s): %s", error, action)
+            return
         self._run_step(steps, index + 1)

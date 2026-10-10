@@ -8,6 +8,7 @@
 PySide6>=6.6
 requests>=2.31
 websocket-client>=1.7
+qtawesome>=1.3.0
 
 # Optional: QtWebEngineWidgets (Web-Panel-Widget, interner Browser) ist
 # normalerweise im PySide6-Wheel enthalten. Fehlt es auf der Plattform,

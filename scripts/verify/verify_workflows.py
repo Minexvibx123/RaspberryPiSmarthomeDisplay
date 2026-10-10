@@ -24,6 +24,19 @@ class _FakeStateManager(QObject):
     def call_service(self, domain, service, entity_id=None, **_data):
         self.calls.append((domain, service, entity_id))
 
+    def run_service_actions(self, actions, on_finished=None):
+        try:
+            for action in actions:
+                self.call_service(
+                    action.get("domain", ""), action.get("service", ""),
+                    action.get("entity_id") or None, **action.get("data", {}),
+                )
+            if on_finished:
+                on_finished(True, "")
+        except Exception as exc:
+            if on_finished:
+                on_finished(False, str(exc))
+
 
 app = QCoreApplication(sys.argv)
 

@@ -37,13 +37,13 @@ class PropertyDef:
 # Properties every widget has, regardless of type.
 COMMON_SCHEMA: list[PropertyDef] = [
     PropertyDef("name", "Name", "text", "", group="Allgemein"),
-    PropertyDef("bg_color", "Hintergrundfarbe", "color", "#1E1F29", group="Darstellung"),
-    PropertyDef("text_color", "Textfarbe", "color", "#FFFFFF", group="Darstellung"),
-    PropertyDef("accent_color", "Akzentfarbe", "color", "#4C8DFF", group="Darstellung"),
-    PropertyDef("radius", "Eckenradius", "number", 16, min=0, max=60, group="Darstellung"),
+    PropertyDef("bg_color", "Hintergrundfarbe", "color", "#1C2724", group="Darstellung"),
+    PropertyDef("text_color", "Textfarbe", "color", "#F2F6F3", group="Darstellung"),
+    PropertyDef("accent_color", "Akzentfarbe", "color", "#72D6B5", group="Darstellung"),
+    PropertyDef("radius", "Eckenradius", "number", 12, min=0, max=60, group="Darstellung"),
     PropertyDef("opacity", "Transparenz", "number", 100, min=10, max=100, group="Darstellung"),
     PropertyDef("bg_gradient_enabled", "Hintergrund-Verlauf", "bool", False, group="Darstellung"),
-    PropertyDef("gradient_color", "Verlauf-Farbe", "color", "#4C8DFF", group="Darstellung"),
+    PropertyDef("gradient_color", "Verlauf-Farbe", "color", "#72D6B5", group="Darstellung"),
     PropertyDef("gradient_direction", "Verlauf-Richtung", "select", "vertical", options=["vertical", "horizontal", "radial"], group="Darstellung"),
     PropertyDef("bg_image_path", "Hintergrundbild", "image", "", group="Darstellung"),
     PropertyDef("bg_image_opacity", "Bild-Transparenz", "number", 30, min=5, max=100, group="Darstellung"),
@@ -163,8 +163,8 @@ class BaseWidget(QWidget):
             rect = self.rect()
             
             if gradient_enabled:
-                gradient_color = QColor(self.get_prop("gradient_color", "#4C8DFF"))
-                bg = QColor(self.get_prop("bg_color", "#1E1F29"))
+                gradient_color = QColor(self.get_prop("gradient_color", "#72D6B5"))
+                bg = QColor(self.get_prop("bg_color", "#1C2724"))
                 direction = self.get_prop("gradient_direction", "vertical")
                 
                 if direction == "vertical":
@@ -268,7 +268,7 @@ class BaseWidget(QWidget):
         bg.setAlphaF(opacity)
 
         if self.selected:
-            border = "2px solid #4C8DFF"
+            border = f"2px solid {accent.name()}"
         elif self._active:
             border = f"2px solid {accent.name()}"
         else:

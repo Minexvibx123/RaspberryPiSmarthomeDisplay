@@ -11,6 +11,7 @@ generiert – spezifische Widget-Kenntnis steckt nur dort, wo sie nötig ist.
 | `dashboard.py` | Canvas-Rendering (Normal- + Editor-Modus) und Dashboard-Shell |
 | `editor.py` | Editor-Werkzeugleiste, Undo/Redo, Vorlagen, Speichern/Abbrechen |
 | `properties.py` | Dynamisches Eigenschaftenpanel (schema-getrieben) |
+| `service_actions.py` | Editor für geordnete Home-Assistant-Service-Aktionen |
 | `element_library.py` | Widget-Bibliothek + Entity-Picker |
 | `navigation.py` | Bottom-/Sidebar-Navigation zwischen Seiten |
 | `themes.py` | Theme-Presets, Stylesheet-Generator, Theme-Editor |
@@ -27,6 +28,10 @@ generiert – spezifische Widget-Kenntnis steckt nur dort, wo sie nötig ist.
   setzt auf `NORMAL` zurück. DIMMED = halbtransparentes Overlay, OFF = schwarz
   + Backlight aus via sysfs. Konfigurierbar über die
   `standby_*`-Settings; Screensaver-Modus `digital_clock` oder `system_info`.
+- Beim Start wird das Backlight auf maximale Helligkeit zurückgesetzt, damit
+  ein Neustart während `OFF` kein dauerhaft schwarzes Panel hinterlässt.
+  Touch-Ereignisse innerhalb des HomePanel-Fensters wecken das Display und
+  setzen die Inaktivitäts-Timer zurück.
 - Editor-Aktivierung per 3-Sekunden-Langdruck oben links.
 - Verbindungs-Badge (REST/WebSocket-Status).
 - Start der Laufzeit (`_start_runtime`) mit State-Manager, Service-Registry,
@@ -60,6 +65,9 @@ generiert – spezifische Widget-Kenntnis steckt nur dort, wo sie nötig ist.
 - Feldtypen: `text`, `number`, `color`, `bool`, `select`, `icon`, `entity`
   (mit Entity-Picker-Link), `font_size`, `image` (Dateiauswahl), `action`
   (öffnet Builder-Dialoge wie den Custom-Widget-Builder).
+- Die `action`-Property des Button-Widgets öffnet `ServiceActionsDialog`:
+  Domain, Service, optionale Entity-ID und Parameter als JSON-Objekt; die
+  geordnete Aktionsliste wird in der Widget-Konfiguration gespeichert.
 
 ## `element_library.py` – Bibliothek + Entity-Picker
 
@@ -78,9 +86,12 @@ generiert – spezifische Widget-Kenntnis steckt nur dort, wo sie nötig ist.
 - Themes sind Dicts aus Design-Tokens; `build_stylesheet(theme)` erzeugt ein
   vollständiges Qt-Stylesheet (QMainWindow, QWidget, QLabel, QPushButton,
   QLineEdit, QComboBox, QSlider, QToolTip, Navigation).
-- `BUILT_IN_THEMES`: Minimal, Dark Glass, Industrial, Modern.
+- `BUILT_IN_THEMES`: Aurora, Porcelain, Minimal, Dark Glass, Industrial, Modern.
 - Auto-Modus wechselt nach Tageszeit (7–19 Uhr hell, sonst dunkel), Check
   alle 5 Minuten. Benutzerdefinierte Themes über die Einstellungen speicherbar.
+- Icon-Packs: HomePanel Line, Font Awesome 6 Solid, Material Design Icons,
+  Phosphor und Remix Icons. Die Auswahl greift sofort für Dashboard und Editor;
+  nicht gemappte Symbole nutzen den eingebauten Vektor-Fallback.
 
 ## `setup_wizard.py` – Ersteinrichtung
 
@@ -95,6 +106,8 @@ Design (Themes, Orientierung, Auflösung, Navigation), Standby & Display,
 Sicherheit (Editor-PIN), Plugins (Aktivieren/Deaktivieren/Neu laden +
 generierter Einstellungsdialog aus `settings_schema`) und
 Backup/Export/Import. Alles grafisch – keine Konfigdatei wird von Hand editiert.
+Das Icon-Pack ist im Design-Tab auswählbar und wird ohne Neustart auf Dashboard
+und Editor angewendet.
 
 ## `app_launcher.py` – Plugin-App-Launcher
 

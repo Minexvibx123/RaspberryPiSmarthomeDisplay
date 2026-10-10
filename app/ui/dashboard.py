@@ -30,7 +30,7 @@ class ResizeHandle(QWidget):
         self.setFixedSize(HANDLE_SIZE, HANDLE_SIZE)
         self.setCursor(Qt.SizeFDiagCursor)
         self.setStyleSheet(
-            f"background-color: #4C8DFF; border-radius: {HANDLE_SIZE // 2}px; border: 3px solid white;"
+            f"background-color: #72D6B5; border-radius: {HANDLE_SIZE // 2}px; border: 3px solid white;"
         )
         self._drag_origin: Optional[QPoint] = None
 

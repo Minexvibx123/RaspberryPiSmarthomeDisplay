@@ -39,7 +39,9 @@ Das Skript:
    (`/home/pi/homepanel` → echter Pfad, `User=pi` → aktueller Benutzer).
 5. Installiert eine udev-Regel für Backlight-Schreibzugriff
    (`/etc/udev/rules.d/99-homepanel-backlight.rules`, Gruppe `video`).
-6. Aktiviert und startet den Dienst `homepanel.service`.
+6. Aktiviert `homepanel.service` für den Autostart beim Booten. Die Installation
+  startet den Dienst nicht unmittelbar; nach dem nötigen Neustart startet er
+  automatisch oder kann manuell gestartet werden.
 
 Danach optional Neuanmeldung, damit die `video`-Gruppe greift.
 
@@ -68,11 +70,12 @@ Wants=network-online.target
 Type=simple
 User=pi                      # wird von install.sh gepatcht
 PAMName=login
+TTYPath=/dev/tty1
 Environment=QT_QPA_PLATFORM=wayland
 Environment=PYTHONUNBUFFERED=1
-ExecStartPost=/bin/sh -c 'i=0; until wlr-randr --output DSI-2 --transform normal || [ $i -ge 20 ]; do i=$((i+1)); sleep 0.5; done'
+ExecStartPost=/bin/sh -c 'i=0; until [ -S /run/user/$(id -u)/wayland-0 ] && XDG_RUNTIME_DIR=/run/user/$(id -u) WAYLAND_DISPLAY=wayland-0 wlr-randr --output DSI-1 --transform 270; do i=$((i+1)); sleep 0.5; [ $i -ge 30 ] && break; done'
 WorkingDirectory=/home/pi/homepanel
-ExecStart=/usr/bin/cage -d -- /home/pi/homepanel/.venv/bin/python -m app.main
+ExecStart=/bin/sh -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u); exec /usr/bin/cage -d -- /home/pi/homepanel/.venv/bin/python -m app.main'
 Restart=always
 RestartSec=3
 
@@ -82,6 +85,8 @@ WantedBy=multi-user.target
 
 Wichtige Punkte:
 
+- **DRM-Sitzung auf `tty1`:** `PAMName=login` zusammen mit `TTYPath=/dev/tty1`
+  stellt die lokale Seat-Sitzung bereit, die cage für den DRM-Zugriff benötigt.
 - **`cage -d`** ist ein minimaler Wayland-Kiosk-Compositor. Er ist nötig,
   weil auf dem Pi 5 das DSI-Panel an einem eigenen DRM-Device
   (`drm-rp1-dsi`) hängt: Qt-`eglfs` würde dort abstrürzen (SIGABRT),
@@ -90,12 +95,35 @@ Wichtige Punkte:
 - **`QT_QPA_PLATFORM=wayland`** – Qt nutzt den Wayland-Backend.
 - **`WAYLAND_DISPLAY` darf nicht vorab gesetzt sein** – cage exportiert es
   selbst für die Clients.
-- **Rotation** über `ExecStartPost` mit `wlr-randr --output DSI-2
-  --transform normal|90|180|270` (bis zu 20 Versuche, 0,5 s Abstand).
+- **`XDG_RUNTIME_DIR`** wird für cage aus der UID des Dienstbenutzers gebildet.
+- **Rotation** über `ExecStartPost`: Nach Erscheinen des Wayland-Sockets wird
+  der Pi-5-Ausgang `DSI-1` auf `270` gedreht (bis zu 30 Versuche im Abstand
+  von 0,5 s). Diese Standard-Unit startet `/usr/bin/cage`; sie verwendet nicht
+  automatisch den Touch-Patch aus `/usr/local/bin/cage`.
 - `Restart=always` + `RestartSec=3` für Crash-Recovery.
-- Der Enwurf verwendet `PAMName=login` für die Kiosk-Sitzung.
+- Die separate Unit `systemd/homepanel-touch.service` kann den Goodix-Touch-
+  Probeversuch ausführen. Sie wird weder von `install.sh` noch von
+  `fix-kiosk.sh` aktiviert. `systemd/homepanel-vnc.service` startet die
+  optionale Browser-/VNC-Ansicht im alternativen tty1-Modell. Details stehen
+  in [Skripte](scripts.md).
 
-## 3. Deploy-Codeänderungen
+`install.sh` verwendet den oben gezeigten direkten systemd-Start. Für Geräte,
+bei denen logind den DRM-Seat mit diesem Startmodell nicht zuverlässig
+bereitstellt, gibt es das alternative tty1-Modell: `build-cage.sh` installiert
+das gepatchte cage, anschließend richtet `fix-kiosk.sh` tty1-Autologin und den
+Start über `kiosk-session.sh` ein. Dieses Skript ruft explizit
+`/usr/local/bin/cage` auf. `fix-kiosk.sh` deaktiviert `homepanel.service`. Nach
+diesem Wechsel ist ein Neustart nötig. Beide Kiosk-Modelle nicht gleichzeitig
+starten.
+
+Die von `fix-kiosk.sh` eingerichtete noVNC-Ansicht ist unter
+`http://<pi-ip>:6080/vnc.html` erreichbar. Sie hat keine eigene
+Passwortabfrage; Port `6080` daher nur in einem vertrauenswürdigen LAN und
+mit Firewall-Beschränkung auf berechtigte Clients bereitstellen. Display- und
+Browser-Instanz teilen die SQLite-Konfiguration und übernehmen Änderungen
+gegenseitig.
+
+## 3. Codeänderungen auf ein Gerät übertragen
 
 ```bash
 ./scripts/sync-pi.sh                    # Ziel: supervisor@192.168.178.138
@@ -105,13 +133,10 @@ Wichtige Punkte:
 Geschützt: `.venv/`, `data/` (SQLite), `.git/`, `thoughts/`.
 Danach auf dem Pi: Abhängigkeiten installieren und Dienst neu starten.
 
-Manuell (systemd-Unit aktualisieren):
-
-```bash
-scp systemd/homepanel.service supervisor@192.168.178.138:/tmp/
-ssh supervisor@192.168.178.138 'echo 0908 | sudo -S sh -c \
-  "sed \"s#/home/pi/homepanel#/home/supervisor/homepanel#g; s#User=pi#User=supervisor#g\" /tmp/homepanel.service > /etc/systemd/system/homepanel.service && systemctl daemon-reload && systemctl restart homepanel.service"'
-```
+Die systemd-Vorlage wird bei der Installation auf Benutzer und Installationspfad
+angepasst. Für Änderungen am Kiosk-Setup bevorzugt die passenden Skripte aus
+[`scripts/`](scripts.md); Zugangsdaten gehören nicht in Shell-Befehle oder
+Versionskontrolle.
 
 ## 4. Updates
 
@@ -151,9 +176,8 @@ Fehlerbilder:
 |---|---|
 | „Could not connect to remote display“ | `WAYLAND_DISPLAY` wurde vorab gesetzt (aus der Unit entfernen) |
 | „Unable to open DRM device“ | Seat-/Gruppen-Problem (`video`, `render`, `input`) |
-| SIGABRT-Crashloop mit `eglfs` | eglfs auf DSI2 nicht nutzbar → cage verwenden |
+| SIGABRT-Crashloop mit `eglfs` | eglfs auf DSI nicht nutzbar → cage verwenden |
 
-Ausführliche Schritt-für-Schritt-Anleitung für das DSI2/cage-Setup stand in
-den Hardware-Bringup-Notizen (`SETUP-STATUS.md`, bis zur Bereinigung im
-Projektwurzelverzeichnis). Wichtige Fallstricke sind in der Fehlertabelle oben
-zusammengefasst.
+Für ein alternatives Startmodell, Goodix-Touch-Fehlersuche und den Bau des
+gepatchten cage siehe die Befehle und Voraussetzungen in
+[`scripts.md`](scripts.md).

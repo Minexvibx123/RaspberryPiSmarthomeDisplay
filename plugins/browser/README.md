@@ -26,6 +26,12 @@ Prozess).
 Optional: `PySide6.QtWebEngineWidgets` (liegt auf den meisten Plattformen im
 `PySide6`-Wheel bei). Fehlt es, degradiert das Plugin graceful.
 
+Beim App-Start setzt HomePanel für QtWebEngine Software-Rendering-Flags und
+deaktiviert die Chromium-Sandbox, um GPU-/Sandbox-Crashes auf Pi-5-Kiosk-
+Installationen unter Wayland zu vermeiden. Den eingebetteten Browser deshalb
+nur für vertrauenswürdige Seiten verwenden; nicht als isolierten Browser für
+beliebige Inhalte betrachten.
+
 ## Bedienung
 
 1. Einstellungen → Plugins → Browser → Home-URL/Bookmarks setzen.

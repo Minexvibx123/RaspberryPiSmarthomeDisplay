@@ -42,6 +42,7 @@ class WidgetLibraryDialog(QDialog):
             grid = QGridLayout()
             for i, cls in enumerate(classes):
                 btn = QPushButton(f"  {cls.display_name}")
+                btn.setProperty("homepanelIconName", cls.icon)
                 btn.setIcon(icon_qicon(cls.icon, 40, "#FFFFFF"))
                 btn.setIconSize(QSize(32, 32))
                 btn.setMinimumSize(140, 90)

@@ -18,7 +18,8 @@ set -euo pipefail
 
 CAGE_VER="v0.3.1"
 BUILD_DIR="/tmp/opencode/cage-build"
-PATCH="$HOME/homepanel/patches/cage-0.3.1-touch-mapping.patch"
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PATCH="$APP_DIR/patches/cage-0.3.1-touch-mapping.patch"
 
 if ! command -v meson >/dev/null; then
     echo "Build-Werkzeuge fehlen. Installiere..."

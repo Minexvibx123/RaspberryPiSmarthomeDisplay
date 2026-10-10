@@ -161,6 +161,26 @@ def refresh_from_state(self):
 Damit bleibt der UI-Thread frei und ein langsames/fehlendes Ziel friert das
 Panel nicht ein.
 
+Für Home-Assistant-Service-Aufrufe keinen eigenen HTTP-Aufruf im Widget
+implementieren. Verwende den `state_manager` aus `self.services`:
+
+```python
+state_manager = self.services.resolve("state_manager")
+state_manager.run_service_actions(
+  [{
+    "domain": "light",
+    "service": "turn_on",
+    "entity_id": "light.wohnzimmer",
+    "data": {},
+  }],
+  on_finished=callback,
+)
+```
+
+Die Aktion läuft im zentralen Worker-Pool; `callback(success, error)` wird nach
+Abschluss aufgerufen. Mehrere Einträge in der Liste werden nacheinander
+ausgeführt und bei einem Fehler abgebrochen.
+
 ## App-Ansichten (App-Launcher)
 
 Überschreibt ein Plugin `create_app_view()`, erscheint es im App-Launcher

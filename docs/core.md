@@ -7,7 +7,7 @@ Qt-Spezifika außerhalb der Threading-Helfer.
 
 | Modul | Verantwortung |
 |---|---|
-| `homeassistant.py` | Synchroner REST-Client für Home Assistant |
+| `homeassistant.py` | REST-Client für Home Assistant (State-Manager-Aufrufe laufen im Worker-Pool) |
 | `websocket.py` | Hintergrund-WebSocket-Client mit Auto-Reconnect |
 | `database.py` | SQLite-Zugriff (Seiten, Widgets, Themes, Vorlagen, Workflows, Settings, Backup/Export) |
 | `state_manager.py` | Zentrale Entity-Zustände, Verbindungsstatus, Demo-Modus |
@@ -38,9 +38,14 @@ Live-Updates laufen nicht hier, sondern über `websocket.py`.
 - Läuft in eigenem `QThread`, UI wird nie blockiert.
 - Auto-Reconnect mit Backoff (2 s → 30 s), Ping alle 20 s.
 - Signale: `connected`, `disconnected(reason)`, `state_changed(entity_id, dict)`,
-  `connection_status(bool)`.
+  `connection_status(bool)`, `command_result(id, success, result, error)`.
 - Authentifizierung über `auth_required`/`access_token`-Handshake und abonniert
-  das Event `state_changed`.
+  das Event `state_changed`. `send_command()` korreliert HA-Resultate anhand
+  der Nachrichten-ID; das Energie-Dashboard nutzt dies für
+  `energy/get_prefs` und `recorder/statistics_during_period`.
+- `StateManager.send_websocket_command(command, on_result)` stellt diese
+  Befehle Widgets zur Verfügung; `cancel_websocket_command(id)` verwirft
+  Callbacks, etwa wenn ein Widget entfernt wird.
 
 ## `database.py` – SQLite
 
@@ -62,6 +67,13 @@ Wichtige Methoden:
 - Backup/Export: `backup_to_file(path)`, `restore_from_file(path)`,
   `export_config(include_secrets=False)`, `import_config(data, replace=True)`.
 
+Die SQLite-Verbindung wartet bei konkurrierendem Zugriff bis zu 5 Sekunden auf
+eine Schreibsperre. Das ist für die Display- und Browser-Instanz nötig, die
+dieselbe Datenbank verwenden. Konfigurationsexporte tragen
+`format_version`; Importe prüfen Version und Grundstruktur, und
+`replace=True` ersetzt Layouts, Vorlagen, Workflows sowie nicht geheime
+Settings.
+
 **Geheimnis-Schutz:** `export_config()` schließt Settings-Schlüssel aus, die
 `token`, `sid`, `password`, `secret` oder `api_key` enthalten –
 es sei denn, `include_secrets=True` ist explizit gesetzt.
@@ -71,7 +83,15 @@ es sei denn, `include_secrets=True` ist explizit gesetzt.
 - `entities: dict[str, Entity]` – lokaler Cache aller Zustände.
 - Signale: `entity_updated(entity_id, dict)`, `connection_status_changed(bool)`,
   `entities_loaded()`.
-- `get_entity(entity_id)`, `call_service(domain, service, entity_id, **data)`.
+- `get_entity(entity_id)`, `call_service(domain, service, entity_id, **data)`,
+  `run_service_actions(actions, on_finished=None)`.
+- REST-Initialabruf, Refresh und Service-Aktionen laufen in einem
+  `QThreadPool` mit maximal zwei Worker-Threads. Versionsmarken verhindern,
+  dass ein älterer REST-Refresh einen inzwischen per WebSocket eingetroffenen
+  Entity-Zustand überschreibt.
+- `run_service_actions()` prüft Domain, Service und JSON-Parameter; mehrere
+  Aktionen werden der Reihe nach ausgeführt. Der Callback erhält Erfolg und
+  Fehlermeldung.
 - **Demo-Modus:** 28 vordefinierte Entities; Service-Aufrufe werden lokal
   simuliert und Sensorwerte alle 5 s zufällig aktualisiert. Kein Home Assistant
   nötig (`--demo`).
@@ -145,8 +165,10 @@ Listenbasierte Automationen (Phase-5-Fundament):
 
 - Format: `WHEN <entity> == <state> THEN <steps…>`.
 - Schritt `{"kind": "action", "domain", "service", "entity_id", "data"}`
-  → `state_manager.call_service(...)`.
+  → `state_manager.run_service_actions(...)`; der nächste Schritt beginnt erst
+  nach erfolgreicher Ausführung.
 - Schritt `{"kind": "wait", "seconds"}` → Verzögerung per `QTimer.singleShot`.
-- Hängt an `state_manager.entity_updated`; ein fehlerhafter Schritt wird
-  geloggt und nie geworfen. Gespeichert in der `workflows`-Tabelle; eine
+- Hängt an `state_manager.entity_updated`; ein fehlgeschlagener Service-Schritt
+  wird geloggt und stoppt diese Workflow-Ausführung. `stop()` trennt den
+  Signal-Handler beim Herunterfahren. Gespeichert in der `workflows`-Tabelle; eine
   node-basierte UI kann später ohne Formatänderung aufgesetzt werden.

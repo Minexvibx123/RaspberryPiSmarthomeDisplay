@@ -19,8 +19,9 @@ class ButtonWidget(BaseWidget):
     PROPERTY_SCHEMA = [
         PropertyDef("text", "Text", "text", "Button", group="Inhalt"),
         PropertyDef("icon_char", "Icon", "icon", "flash", group="Inhalt"),
-        PropertyDef("entity_id", "Entity (optional)", "entity", "", entity_domains=["light", "switch", "input_boolean", "scene", "script"], group="Aktion"),
+        PropertyDef("entity_id", "Entity (optional)", "entity", "", entity_domains=["light", "switch", "input_boolean", "scene", "script", "automation"], group="Aktion"),
         PropertyDef("action", "Aktion", "select", "toggle", options=["toggle", "turn_on", "turn_off", "activate", "navigate"], group="Aktion"),
+        PropertyDef("service_actions", "Service-Aktionen bearbeiten", "action", action="service_actions", group="Aktion"),
         PropertyDef("target_page", "Zielseite (bei Navigation)", "text", "", group="Aktion"),
         PropertyDef("long_press_action", "Verhalten bei langem Drücken", "select", "none", options=["none", "toggle", "turn_on", "turn_off"], group="Aktion"),
     ]
@@ -62,15 +63,17 @@ class ButtonWidget(BaseWidget):
         entity_id = self.config.get("entity_id")
         if action == "navigate":
             self.navigate_requested.emit(self.get_prop("target_page", ""))
+        elif self.state_manager and "service_actions" in self.config:
+            self.state_manager.run_service_actions(self.config.get("service_actions") or [])
         elif entity_id:
             domain = entity_id.split(".")[0]
+            service = action
             if action == "toggle":
-                self.call_service(domain, "toggle")
-            elif action == "turn_on":
-                self.call_service(domain, "turn_on")
-            elif action == "turn_off":
-                self.call_service(domain, "turn_off")
+                service = "turn_on" if domain in ("scene", "script", "automation") else "toggle"
             elif action == "activate":
-                self.call_service(domain, "turn_on")
+                service = "turn_on"
+            self.state_manager.run_service_actions([{
+                "domain": domain, "service": service, "entity_id": entity_id, "data": {},
+            }])
         self.clicked.emit()
         super().mouseReleaseEvent(event)
